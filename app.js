@@ -3,7 +3,7 @@ const defaultPresets = window.scalePadPresets || [];
 const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v1';
 const planStorageKey = 'scalepad_plan_v1';
-const buildTag = '2026-09-21e';
+const buildTag = '2026-09-25a';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -12,6 +12,10 @@ let plan = loadPlan();
 let activePlan = [];
 let ageBand = '';
 let epilepsy = '';
+let education = '';
+let lettersFamiliar = '';
+let skipScope = 'one';
+let sequenceTimer = null;
 let voiceEnabled = localStorage.getItem(voiceStorageKey) !== 'off';
 let isSpeaking = false;
 let answers = [];
@@ -41,6 +45,17 @@ const eventWritePromises = new Set();
 const logDbName = 'scalepad_live_logs_v1';
 const logDbVersion = 1;
 const $ = (id) => document.getElementById(id);
+
+/* 跳过原因代码：写入答题记录和导出文件，结果页按代码统计 */
+const skipReasons = [
+  ['001', '过于简单'],
+  ['002', '太难，做不出来'],
+  ['003', '不熟悉内容（不认识名人、不熟悉英文字母等）'],
+  ['004', '拒绝作答或疲劳'],
+  ['005', '设备或操作问题'],
+  ['009', '其他原因']
+];
+const skipReasonLabel = (code) => skipReasons.find(([key]) => key === code)?.[1] || '';
 
 function planLabel() {
   if (!activePlan.length) return '未选择';
@@ -280,13 +295,18 @@ function sectionStats() {
   activeQuestions.forEach((question, index) => {
     const key = question.planIndex ?? (question.section || '未分区');
     if (!groups.has(key)) {
-      groups.set(key, { code: partCode(order.length), name: question.section || '未分区', source: question.planPreset || '', scoring: question.scoring || 'auto', total: 0, answered: 0, correct: 0, score: 0, maxScore: 0 });
+      groups.set(key, { code: partCode(order.length), name: question.section || '未分区', source: question.planPreset || '', scoring: question.scoring || 'auto', total: 0, answered: 0, correct: 0, score: 0, maxScore: 0, skipped: 0, skipCodes: {} });
       order.push(key);
     }
     const group = groups.get(key);
     group.total += 1;
     if (group.scoring === 'scale' && Array.isArray(question.values)) group.maxScore += Math.max(...question.values);
     const record = answerByQuestion[index];
+    if (record?.skipped) {
+      group.skipped += 1;
+      group.skipCodes[record.skipCode] = (group.skipCodes[record.skipCode] || 0) + 1;
+      return;
+    }
     if (!hasAnswer(record)) return;
     group.answered += 1;
     if (group.scoring === 'scale') group.score += scaleScore(question, record.answer);
@@ -383,7 +403,7 @@ function savePlan() {
   localStorage.setItem(planStorageKey, JSON.stringify(plan));
 }
 
-/* 30 岁以下用 18–30 岁版名人题；填了年龄自动选中，研究员可再手动改 */
+/* 30 岁以下用 18–30 岁版名人题；填了年龄自动选中，医生可再手动改 */
 function bandFromAge() {
   const age = $('patientAge').value.trim();
   if (!/^\d+$/.test(age)) return '';
@@ -392,6 +412,10 @@ function bandFromAge() {
 
 function planPresets() {
   return plan.map((name) => presets.find((preset) => preset.name === name)).filter(Boolean);
+}
+
+function planNeedsLetters() {
+  return planPresets().some((preset) => preset.questions.some((question) => question.needsLetters));
 }
 
 function renderScaleList() {
@@ -424,11 +448,22 @@ function renderScaleList() {
   $('epilepsyYes').classList.toggle('selected', epilepsy === 'yes');
   $('bandYoung').classList.toggle('selected', ageBand === 'young');
   $('bandOlder').classList.toggle('selected', ageBand === 'older');
+  document.querySelectorAll('[data-education]').forEach((button) => button.classList.toggle('selected', button.dataset.education === education));
+  $('lettersYes').classList.toggle('selected', lettersFamiliar === 'yes');
+  $('lettersNo').classList.toggle('selected', lettersFamiliar === 'no');
+  $('lettersNote').textContent = lettersFamiliar === 'no'
+    ? '字母相关题会自动记为跳过（003）'
+    : !lettersFamiliar && planNeedsLetters() ? '所选量表含字母题，请先确认' : '';
 }
 
 $('bandYoung').onclick = () => { ageBand = 'young'; renderScaleList(); };
 $('bandOlder').onclick = () => { ageBand = 'older'; renderScaleList(); };
 $('epilepsyNo').onclick = () => { epilepsy = 'no'; renderScaleList(); };
+document.querySelectorAll('[data-education]').forEach((button) => {
+  button.onclick = () => { education = button.dataset.education; renderScaleList(); };
+});
+$('lettersYes').onclick = () => { lettersFamiliar = 'yes'; renderScaleList(); };
+$('lettersNo').onclick = () => { lettersFamiliar = 'no'; renderScaleList(); };
 $('epilepsyYes').onclick = () => {
   epilepsy = window.confirm('受试者有癫痫病史。本测试包含图片与画面切换材料，确认仍要继续吗？') ? 'yes' : '';
   renderScaleList();
@@ -442,8 +477,13 @@ $('patientAge').oninput = () => { ageBand = bandFromAge() || ageBand; renderScal
 
 $('chooseSaveFolder').onclick = chooseSaveFolder;
 $('homeButton').onclick = goHome;
-$('prevQuestion').onclick = () => navigateTo(questionIndex - 1);
-$('nextQuestion').onclick = () => navigateTo(questionIndex + 1);
+$('prevQuestion').onclick = () => navigateTo(nextOpenIndex(questionIndex - 1, -1));
+$('nextQuestion').onclick = () => navigateTo(nextOpenIndex(questionIndex + 1));
+$('skipButton').onclick = openSkipMenu;
+$('skipClose').onclick = closeSkipMenu;
+$('skipOverlay').onclick = (event) => { if (event.target === $('skipOverlay')) closeSkipMenu(); };
+$('skipScopeOne').onclick = () => { skipScope = 'one'; renderSkipMenu(); };
+$('skipScopePart').onclick = () => { skipScope = 'part'; renderSkipMenu(); };
 $('speakQuestion').onclick = toggleSpeech;
 $('partsButton').onclick = openPartsMenu;
 $('partsClose').onclick = closePartsMenu;
@@ -507,6 +547,11 @@ async function startSession() {
     return;
   }
   const chosen = planPresets();
+  if (!lettersFamiliar && planNeedsLetters()) {
+    window.alert('所选量表含英文字母题，请先确认受试者是否熟悉英文字母。');
+    unlock();
+    return;
+  }
   if (!ageBand && chosen.some((preset) => preset.questions.some((question) => question.ageBand))) {
     window.alert('所选量表含分年龄版本的名人题，请先填写年龄。');
     unlock();
@@ -550,19 +595,35 @@ async function startSession() {
       plan: activePlan,
       ageBand,
       epilepsy,
+      education,
+      lettersFamiliar,
       questionCount: activeQuestions.length,
       startedAt: new Date(sessionStartedAt).toISOString(),
       status: 'active'
     });
-    if (!(await writeEvent({ type: 'session_started', patient, age: patientAge || null, preset: planLabel(), ageBand, epilepsy, questionCount: activeQuestions.length }))) throw new Error('无法写入测试开始记录');
+    if (!(await writeEvent({ type: 'session_started', patient, age: patientAge || null, preset: planLabel(), ageBand, epilepsy, education, lettersFamiliar, questionCount: activeQuestions.length }))) throw new Error('无法写入测试开始记录');
   } catch (error) {
     reportStorageFailure(error, '测试开始记录');
     unlock();
     return;
   }
-  questionIndex = 0;
   answers = [];
   answerByQuestion = {};
+  /* 不熟悉英文字母：字母相关题直接记为 003 跳过，顺序作答时越过 */
+  if (lettersFamiliar === 'no') {
+    const letterIndexes = activeQuestions.map((question, index) => (question.needsLetters ? index : -1)).filter((index) => index >= 0);
+    if (letterIndexes.length && !(await recordSkips(letterIndexes, '003', true))) {
+      reportStorageFailure(new Error('无法写入字母题跳过记录'), '测试开始记录');
+      unlock();
+      return;
+    }
+  }
+  questionIndex = nextOpenIndex(0);
+  if (questionIndex >= activeQuestions.length) {
+    window.alert('所选量表的题目都已被自动跳过，没有可作答的题目。');
+    unlock();
+    return;
+  }
   $('setup').classList.add('hidden');
   $('quiz').classList.remove('hidden');
   updateHomeButton();
@@ -742,15 +803,18 @@ function renderEditorForm() {
 function renderQuestion() {
   if (advanceTimer) window.clearTimeout(advanceTimer);
   advanceTimer = null;
+  clearSequenceTimer();
   pendingAnswer = null;
   const question = activeQuestions[questionIndex];
   const options = question.options || [];
   const savedAnswer = answerByQuestion[questionIndex];
-  $('prevQuestion').disabled = questionIndex === 0;
-  $('nextQuestion').disabled = questionIndex === activeQuestions.length - 1;
+  const audioOnly = question.delivery === 'audio';
+  $('prevQuestion').disabled = nextOpenIndex(questionIndex - 1, -1) < 0;
+  $('nextQuestion').disabled = nextOpenIndex(questionIndex + 1) >= activeQuestions.length;
   beginQuestionTelemetry(question);
   if (sessionId && storageReady) void writeEvent({ type: 'question_presented', ...questionFields(question), presentedAt: currentQuestionTelemetry.presentedAt });
-  const displayText = question.display ?? question.text;
+  /* 纯语音题：患者看不到题目，屏幕只提示交给医生，由医生播放 */
+  const displayText = audioOnly ? '请把平板交给医生' : (question.display ?? question.text);
   $('sectionName').textContent = question.section || planLabel();
   $('sectionMeta').textContent = `${partCode(question.planIndex)} 部分 · ${question.planPreset}`;
   $('partsButton').textContent = `${partCode(question.planIndex)} 部分 ▾`;
@@ -759,12 +823,19 @@ function renderQuestion() {
   $('question').textContent = displayText;
   $('question').className = `q${displayText.length > 34 ? ' small' : displayText.length > 14 ? ' medium' : ''}`;
   $('questionWrap').classList.toggle('empty-question', !displayText);
-  /* 题干需要靠想象、不能让患者看到时，仅给研究员留一行小字提示 */
-  const script = !displayText && !question.image ? question.text : '';
-  $('researcherScript').textContent = script ? `研究员朗读：${script}` : '';
+  $('questionWrap').classList.toggle('handoff', audioOnly);
+  /* 患者看不到题干时，给医生留一行小字，方便核对正在播放的题目 */
+  const script = audioOnly || (!displayText && !question.image && !question.sequence) ? question.text : '';
+  $('researcherScript').textContent = script ? `医生查看：${script}` : '';
   $('researcherScript').classList.toggle('hidden', !script);
+  const skipped = savedAnswer?.skipped;
+  $('skipTag').textContent = skipped ? `已跳过 · ${savedAnswer.skipCode} ${savedAnswer.skipReason}（直接作答可覆盖）` : '';
+  $('skipTag').classList.toggle('hidden', !skipped);
   stopSpeaking();
   $('questionMedia').innerHTML = '';
+  $('questionMedia').classList.remove('stimulus');
+  $('choices').classList.remove('pending');
+  if (question.sequence) renderSequence(question, hasAnswer(savedAnswer));
   if (question.image) {
     const image = document.createElement('img');
     image.src = question.image;
@@ -780,7 +851,7 @@ function renderQuestion() {
   if (question.response === 'text') {
     const input = document.createElement('textarea');
     input.className = 'free-response-input';
-    input.placeholder = '请输入或记录患者回答';
+    input.placeholder = '医生记录回答';
     input.value = savedAnswer ? savedAnswer.answer : '';
     input.addEventListener('input', () => {
       if (!currentQuestionTelemetry) return;
@@ -797,7 +868,7 @@ function renderQuestion() {
       scheduleNext(question, input.value.trim());
     };
     $('choices').append(input, record);
-    autoSpeak();
+    autoSpeak(question);
     return;
   }
 
@@ -813,7 +884,50 @@ function renderQuestion() {
     };
     $('choices').append(button);
   });
-  autoSpeak();
+  autoSpeak(question);
+}
+
+function clearSequenceTimer() {
+  if (sequenceTimer) window.clearTimeout(sequenceTimer);
+  sequenceTimer = null;
+}
+
+function showStimulus(src) {
+  const image = document.createElement('img');
+  image.src = src;
+  image.alt = '题目材料';
+  $('questionMedia').replaceChildren(image);
+}
+
+/* 空间表征（想象版）：点“开始”后先显示黑点，dotsMs 后黑点消失、只留箭头，这时才出现选项。
+ * 反应时从箭头出现开始算。已答过的题回看时选项直接可点，也可以重新播放。 */
+function renderSequence(question, answered) {
+  const { dots, arrow, dotsMs } = question.sequence;
+  [dots, arrow].forEach((src) => { new Image().src = src; });
+  $('questionMedia').classList.add('stimulus');
+  if (!answered) $('choices').classList.add('pending');
+  const start = document.createElement('button');
+  start.type = 'button';
+  start.className = 'small stimulus-start';
+  start.textContent = `${answered ? '重新播放' : '开始'}（黑点显示 ${dotsMs / 1000} 秒）`;
+  start.onclick = () => {
+    stopSpeaking();
+    showStimulus(dots);
+    void writeEvent({ type: 'stimulus_phase', ...questionFields(question), phase: 'dots', durationMs: dotsMs });
+    sequenceTimer = window.setTimeout(() => {
+      sequenceTimer = null;
+      showStimulus(arrow);
+      $('choices').classList.remove('pending');
+      if (currentQuestionTelemetry) {
+        const now = Date.now();
+        currentQuestionTelemetry.presentedAtMs = now;
+        currentQuestionTelemetry.arrowShownAt = new Date(now).toISOString();
+      }
+      void writeEvent({ type: 'stimulus_phase', ...questionFields(question), phase: 'arrow' });
+      autoSpeak(question, true);
+    }, dotsMs);
+  };
+  $('questionMedia').append(start);
 }
 
 function scheduleNext(question, answer) {
@@ -852,7 +966,7 @@ async function advanceAfterDelay(revision) {
   if (!committed || pendingAnswer) return;
   setQuizStatus('');
   advanceTimer = null;
-  questionIndex += 1;
+  questionIndex = nextOpenIndex(questionIndex + 1);
   if (questionIndex < activeQuestions.length) renderQuestion();
   else await finish();
 }
@@ -874,13 +988,112 @@ async function commitPendingAnswer() {
   };
   if (!(await writeEvent({ type: 'answer_committed', ...record }))) return false;
   answerByQuestion[pending.index] = record;
-  answers = Object.keys(answerByQuestion)
-    .sort((a, b) => Number(a) - Number(b))
-    .map((indexKey) => answerByQuestion[indexKey]);
+  rebuildAnswers();
   pendingAnswer = null;
   currentQuestionTelemetry = null;
   return true;
 }
+
+function rebuildAnswers() {
+  answers = Object.keys(answerByQuestion)
+    .sort((a, b) => Number(a) - Number(b))
+    .map((indexKey) => answerByQuestion[indexKey]);
+}
+
+/* 预先自动跳过的题（如不熟悉字母）在顺序作答时直接越过；从“部分”菜单仍可进入补做 */
+function nextOpenIndex(from, step = 1) {
+  let index = from;
+  while (index >= 0 && index < activeQuestions.length && answerByQuestion[index]?.autoSkipped) index += step;
+  return index;
+}
+
+function cancelPendingAnswer() {
+  if (advanceTimer) window.clearTimeout(advanceTimer);
+  advanceTimer = null;
+  clearSequenceTimer();
+  pendingRevision += 1;
+  pendingAnswer = null;
+}
+
+async function recordSkips(indexes, code, auto) {
+  const skipReason = skipReasonLabel(code);
+  const time = new Date().toISOString();
+  const results = await Promise.all(indexes.map((index) => {
+    const record = {
+      ...questionFields(activeQuestions[index], index),
+      ...(index === questionIndex && !auto ? telemetrySnapshot() : {}),
+      index,
+      answer: '',
+      skipped: true,
+      skipCode: code,
+      skipReason,
+      autoSkipped: auto,
+      time
+    };
+    return writeEvent({ type: 'question_skipped', ...record }).then((saved) => {
+      if (saved) answerByQuestion[index] = record;
+      return saved;
+    });
+  }));
+  rebuildAnswers();
+  return results.every(Boolean);
+}
+
+/* 仅本题：跳过当前题；本部分剩余题：当前题及本部分后面还没作答的题 */
+async function skipQuestions(code) {
+  closeSkipMenu();
+  cancelPendingAnswer();
+  const current = activeQuestions[questionIndex];
+  const targets = skipScope === 'part'
+    ? activeQuestions.map((question, index) => index).filter((index) => index === questionIndex
+      || (index > questionIndex && activeQuestions[index].planIndex === current.planIndex && !hasAnswer(answerByQuestion[index])))
+    : [questionIndex];
+  if (!(await recordSkips(targets, code, false))) {
+    setQuizStatus('跳过记录未能写入本机记录，已暂停。请检查存储后重试。');
+    return;
+  }
+  setQuizStatus('');
+  const next = nextOpenIndex(targets[targets.length - 1] + 1);
+  if (next < activeQuestions.length) {
+    questionIndex = next;
+    renderQuestion();
+  } else {
+    await finish();
+  }
+}
+
+function renderSkipMenu() {
+  $('skipScopeOne').classList.toggle('selected', skipScope === 'one');
+  $('skipScopePart').classList.toggle('selected', skipScope === 'part');
+  const list = $('skipList');
+  list.innerHTML = '';
+  skipReasons.forEach(([code, label]) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'part-item';
+    const badge = document.createElement('span');
+    badge.className = 'code skip-code';
+    badge.textContent = code;
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = label;
+    item.append(badge, name);
+    item.onclick = () => { void skipQuestions(code); };
+    list.append(item);
+  });
+}
+
+function openSkipMenu() {
+  skipScope = 'one';
+  renderSkipMenu();
+  $('skipOverlay').classList.remove('hidden');
+}
+
+function closeSkipMenu() {
+  $('skipOverlay').classList.add('hidden');
+}
+
+const formatSkipCodes = (codes) => Object.entries(codes).sort().map(([code, count]) => `${code}×${count}`).join('、');
 
 async function jumpTo(index) {
   if (advanceTimer) window.clearTimeout(advanceTimer);
@@ -915,13 +1128,20 @@ function partState(planIndex) {
   if (planIndex === activeQuestions[questionIndex]?.planIndex) return '当前';
   let total = 0;
   let done = 0;
+  const codes = {};
   activeQuestions.forEach((question, index) => {
     if (question.planIndex !== planIndex) return;
     total += 1;
-    if (hasAnswer(answerByQuestion[index])) done += 1;
+    const record = answerByQuestion[index];
+    if (record?.skipped) codes[record.skipCode] = (codes[record.skipCode] || 0) + 1;
+    else if (hasAnswer(record)) done += 1;
   });
-  if (!done) return '未作答';
-  return done === total ? '已完成' : '部分作答';
+  const skipped = Object.values(codes).reduce((sum, count) => sum + count, 0);
+  const skipText = skipped ? `跳过 ${formatSkipCodes(codes)}` : '';
+  if (done === total) return '已完成';
+  if (!done && !skipped) return '未作答';
+  if (done + skipped === total) return done ? `完成 ${done} · ${skipText}` : skipText;
+  return skipped ? `部分作答 · ${skipText}` : '部分作答';
 }
 
 function renderPartsMenu() {
@@ -978,8 +1198,12 @@ function toggleSpeech() {
   speakQuestion(false);
 }
 
-function autoSpeak() {
+/* 纯语音题由医生手动播放；已经在语音题段落里时（上一题也是语音题）自动播放。
+ * 空间表征序列题等箭头出现后再播放。 */
+function autoSpeak(question, afterStimulus = false) {
   if (!voiceEnabled) return;
+  if (question.sequence && !afterStimulus) return;
+  if (question.delivery === 'audio' && activeQuestions[questionIndex - 1]?.delivery !== 'audio') return;
   window.setTimeout(() => speakQuestion(true), 80);
 }
 
@@ -1010,15 +1234,14 @@ function updateHomeButton() {
 }
 
 function goHome() {
-  if (advanceTimer) window.clearTimeout(advanceTimer);
-  advanceTimer = null;
-  pendingRevision += 1;
-  pendingAnswer = null;
+  cancelPendingAnswer();
   currentQuestionTelemetry = null;
   stopSpeaking();
   $('quiz').classList.add('hidden');
   $('editor').classList.add('hidden');
   $('done').classList.add('hidden');
+  closeSkipMenu();
+  closePartsMenu();
   $('setup').classList.remove('hidden');
   updateHomeButton();
   renderScaleList();
@@ -1036,7 +1259,8 @@ const escapeHtml = (value) => String(value).replace(/[&<>]/g, (char) => ({ '&': 
 function renderSectionResults() {
   const stats = sectionStats();
   const rows = stats.map((group) => {
-    const skipped = group.total - group.answered;
+    const unanswered = group.total - group.answered - group.skipped;
+    const skipNote = [group.skipped ? `跳过 ${group.skipped}（${formatSkipCodes(group.skipCodes)}）` : '', unanswered ? `未作答 ${unanswered}` : ''].filter(Boolean).join('<br>');
     let result;
     let rate;
     if (group.scoring === 'scale') {
@@ -1046,10 +1270,10 @@ function renderSectionResults() {
       result = `${group.answered} / ${group.total}`;
       rate = '人工评分';
     } else {
-      result = group.answered ? `${group.correct}/${group.answered} (${group.total})` : `未作答 (${group.total})`;
+      result = group.answered ? `${group.correct}/${group.answered} (${group.total})` : `${group.skipped === group.total ? '全部跳过' : '未作答'} (${group.total})`;
       rate = group.answered ? `${Math.round((group.correct / group.answered) * 100)}%` : '—';
     }
-    return `<tr><td>${escapeHtml(group.code)} · ${escapeHtml(group.name)}<small>${escapeHtml(group.source)}</small></td><td class="result">${escapeHtml(result)}</td><td class="rate">${escapeHtml(rate)}</td><td class="skip">${skipped ? `跳过 ${skipped}` : ''}</td></tr>`;
+    return `<tr><td>${escapeHtml(group.code)} · ${escapeHtml(group.name)}<small>${escapeHtml(group.source)}</small></td><td class="result">${escapeHtml(result)}</td><td class="rate">${escapeHtml(rate)}</td><td class="skip">${skipNote}</td></tr>`;
   });
   const scored = stats.filter((group) => group.scoring === 'auto');
   const totals = scored.reduce((sum, group) => ({
@@ -1060,7 +1284,8 @@ function renderSectionResults() {
   const totalRow = scored.length
     ? `<tr class="total"><td>客观题合计</td><td class="result">${totals.correct}/${totals.answered} (${totals.total})</td><td class="rate">${totals.answered ? `${Math.round((totals.correct / totals.answered) * 100)}%` : '—'}</td><td class="skip"></td></tr>`
     : '';
-  $('sectionResults').innerHTML = `<table class="section-table"><thead><tr><th>分区</th><th>答对/已答（总题数）</th><th>正确率</th><th></th></tr></thead><tbody>${rows.join('')}${totalRow}</tbody></table>`;
+  const legend = `<p class="muted">跳过代码：${skipReasons.map(([code, label]) => `${code} ${label}`).join('；')}</p>`;
+  $('sectionResults').innerHTML = `<table class="section-table"><thead><tr><th>分区</th><th>答对/已答（总题数）</th><th>正确率</th><th>跳过（代码×题数）</th></tr></thead><tbody>${rows.join('')}${totalRow}</tbody></table>${legend}`;
 }
 
 function renderDashboard() {
@@ -1070,8 +1295,11 @@ function renderDashboard() {
   const averageDuration = answered ? completed.reduce((sum, answer) => sum + (answer.answerDurationMs || 0), 0) / answered : 0;
   const changes = answers.reduce((sum, answer) => sum + (answer.answerChanges || 0), 0);
   const audioCount = answers.reduce((sum, answer) => sum + (answer.audioPlayCount || 0), 0);
+  const skippedCount = answers.filter((answer) => answer.skipped).length;
   $('dashboard').innerHTML = [
     ['已完成题数', `${answered} / ${activeQuestions.length}`],
+    ['跳过题数', `${skippedCount}`],
+    ['未作答题数', `${activeQuestions.length - answered - skippedCount}`],
     ['平均反应时间', formatDuration(averageReaction)],
     ['平均答题耗时', formatDuration(averageDuration)],
     ['选项修改次数', `${changes}`],
@@ -1114,6 +1342,8 @@ async function finalizeSessionLog() {
 async function finish() {
   if (advanceTimer) window.clearTimeout(advanceTimer);
   advanceTimer = null;
+  clearSequenceTimer();
+  stopSpeaking();
   await Promise.all([...eventWritePromises]);
   const completedAt = new Date().toISOString();
   try {
@@ -1135,7 +1365,7 @@ async function finish() {
   $('quiz').classList.add('hidden');
   $('done').classList.remove('hidden');
   updateHomeButton();
-  $('summary').textContent = `患者 ${patient}${patientAge ? `（${patientAge} 岁）` : ''} · ${new Date().toLocaleString('zh-CN')} · 共 ${activePlan.length} 个部分 / ${activeQuestions.length} 题${ageBand ? ` · 名人题${ageBand === 'young' ? '18–30 岁版' : '31–60 岁版'}` : ''}`;
+  $('summary').textContent = `患者 ${patient}${patientAge ? `（${patientAge} 岁）` : ''}${education ? ` · ${education}` : ''}${lettersFamiliar === 'no' ? ' · 不熟悉英文字母' : ''} · ${new Date().toLocaleString('zh-CN')} · 共 ${activePlan.length} 个部分 / ${activeQuestions.length} 题${ageBand ? ` · 名人题${ageBand === 'young' ? '18–30 岁版' : '31–60 岁版'}` : ''}`;
   renderSectionResults();
   renderDashboard();
   $('logPath').textContent = directoryHandle
@@ -1147,12 +1377,15 @@ async function download(extension, type) {
   const events = sessionId && logDb ? await idbGetSessionEvents(sessionId) : sessionEventCache;
   const stats = sectionStats();
   const data = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     sessionId,
     patient,
     age: patientAge || null,
     ageBand,
     epilepsy,
+    education,
+    lettersFamiliar,
+    skipReasons: Object.fromEntries(skipReasons),
     preset: planLabel(),
     plan: activePlan,
     startedAt: sessionStartedAt ? new Date(sessionStartedAt).toISOString() : null,
@@ -1164,6 +1397,7 @@ async function download(extension, type) {
   const describe = (answer) => {
     const question = activeQuestions[answer.questionIndex];
     if (!question) return ['', '', ''];
+    if (answer.skipped) return ['', '', question.correct ?? ''];
     if (question.scoring === 'scale') return ['', String(scaleScore(question, answer.answer)), ''];
     if (question.scoring === 'manual') return ['', '', question.correct ?? ''];
     return [isCorrect(question, answer.answer) ? '1' : '0', '', question.correct ?? ''];
@@ -1171,15 +1405,15 @@ async function download(extension, type) {
   const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
   const answerRows = answers.map((answer) => {
     const [correct, score, expected] = describe(answer);
-    return [patient, patientAge, ageBand, planLabel(), answer.questionIndex, answer.section, answer.question, answer.answer, expected, correct, score,
-      answer.time, answer.answerDurationMs, answer.confirmationDelayMs, answer.reactionTimeMs, answer.answerChanges, answer.audioPlayCount].map(quote).join(',');
+    return [patient, patientAge, ageBand, education, lettersFamiliar, planLabel(), answer.questionIndex, answer.section, answer.question, answer.answer, expected, correct, score,
+      answer.skipCode, answer.skipReason, answer.time, answer.answerDurationMs, answer.confirmationDelayMs, answer.reactionTimeMs, answer.answerChanges, answer.audioPlayCount].map(quote).join(',');
   });
-  const statRows = stats.map((group) => [`${group.code} 部分`, group.name, group.scoring, group.correct, group.answered, group.total, group.score].map(quote).join(','));
+  const statRows = stats.map((group) => [`${group.code} 部分`, group.name, group.scoring, group.correct, group.answered, group.skipped, formatSkipCodes(group.skipCodes), group.total, group.score].map(quote).join(','));
   const content = type === 'json'
     ? JSON.stringify(data, null, 2)
-    : '\uFEFFpatient,age,ageBand,preset,questionIndex,section,question,answer,expected,correct,score,time,answerDurationMs,confirmationDelayMs,reactionTimeMs,answerChanges,audioPlayCount\n'
+    : '\uFEFFpatient,age,ageBand,education,lettersFamiliar,preset,questionIndex,section,question,answer,expected,correct,score,skipCode,skipReason,time,answerDurationMs,confirmationDelayMs,reactionTimeMs,answerChanges,audioPlayCount\n'
       + answerRows.join('\n')
-      + '\n\n\uFEFF类型,分区,评分方式,答对,已答,总题数,量表总分\n'
+      + '\n\n类型,分区,评分方式,答对,已答,跳过,跳过代码,总题数,量表总分\n'
       + statRows.join('\n');
   const filename = `${safeFilePart(patient)}_${sessionId || Date.now()}.${extension}`;
   const mime = type === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8';

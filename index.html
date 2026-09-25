@@ -25,7 +25,7 @@
     #setup > label { display: block; margin-top: 20px; font-size: 18px; font-weight: 600; }
     .start-row { display: grid; grid-template-columns: 1fr 160px; gap: 16px; }
     .start-row label { display: block; font-size: 18px; font-weight: 600; }
-    .confirm-row { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 18px; font-weight: 600; }
+    .confirm-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 4px; font-size: 18px; font-weight: 600; }
     .confirm-row button { width: auto; margin: 0; padding: 10px 22px; border-radius: 10px; font-size: 17px; }
     .confirm-row em { color: #627d98; font-size: 15px; font-style: normal; font-weight: 400; }
     .scale-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 18px; }
@@ -136,6 +136,17 @@
     .section-band strong { color: #0b6bcb; font-size: clamp(18px, 2.2vw, 26px); }
     .quiz-status { flex: none; margin: 6px 0 0; padding: 8px; border-radius: 8px; background: #fee4e2; color: #b42318; text-align: center; font-size: 16px; font-weight: 700; }
     .section-band span { display: block; margin-top: 3px; color: #334e68; font-size: clamp(15px, 1.8vw, 21px); line-height: 1.35; }
+    .question-wrap.handoff .q { color: #486581; }
+    .question-wrap.handoff button.audio-button { width: 132px; height: 132px; font-size: 60px; }
+    #choices.pending { visibility: hidden; }
+    #questionMedia.stimulus { flex: 1 1 66%; max-height: 66%; }
+    #questionMedia.stimulus + #choices { flex: 0 0 110px; }
+    #questionMedia.stimulus img { width: 100%; height: 100%; max-width: none; max-height: none; border-radius: 0; background: #fff; object-fit: contain; }
+    #questionMedia .stimulus-start { width: auto; padding: 22px 40px; font-size: clamp(24px, 3.4vw, 40px); }
+    .skip-tag { flex: none; margin: 6px 0 0; padding: 8px; border-radius: 8px; background: #fff4e5; color: #9a5b00; text-align: center; font-size: 17px; font-weight: 700; }
+    .skip-scope { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+    .skip-scope button { margin: 0; padding: 12px; font-size: 18px; }
+    .part-item .code.skip-code { width: auto; min-width: 54px; padding: 0 8px; font-variant-numeric: tabular-nums; }
     .researcher-script { flex: none; margin: 8px 0 0; color: #829ab1; text-align: center; font-size: 15px; }
     .q.medium { font-size: clamp(30px, 4.6vw, 58px); }
     .q.small { font-size: clamp(22px, 3.2vw, 40px); line-height: 1.35; }
@@ -175,6 +186,21 @@
         <button class="small" id="bandOlder" type="button">31–60 岁版</button>
         <em id="ageBandNote"></em>
       </div>
+      <div class="confirm-row" id="educationRow">
+        <span>学历</span>
+        <button class="small" type="button" data-education="小学及以下">小学及以下</button>
+        <button class="small" type="button" data-education="初中">初中</button>
+        <button class="small" type="button" data-education="高中/中专">高中/中专</button>
+        <button class="small" type="button" data-education="大专">大专</button>
+        <button class="small" type="button" data-education="本科">本科</button>
+        <button class="small" type="button" data-education="研究生">研究生</button>
+      </div>
+      <div class="confirm-row">
+        <span>熟悉英文字母</span>
+        <button class="small" id="lettersYes" type="button">熟悉</button>
+        <button class="small" id="lettersNo" type="button">不熟悉</button>
+        <em id="lettersNote"></em>
+      </div>
       <label>选择量表（按点击顺序作答，答题中可随时切换部分）</label>
       <div id="scaleList" class="scale-list"></div>
       <button id="start">开始</button>
@@ -191,12 +217,14 @@
       <div class="quiz-nav">
         <button class="icon-button" id="prevQuestion" type="button" aria-label="上一题" title="上一题"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button>
         <button class="skip-button" id="partsButton" type="button">部分</button>
+        <button class="skip-button" id="skipButton" type="button">跳过…</button>
         <button class="icon-button" id="nextQuestion" type="button" aria-label="下一题" title="下一题"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button>
       </div>
       <div class="section-band"><div class="section-band-top"><strong id="sectionName"></strong><em id="sectionMeta"></em></div><span id="sectionIntro"></span></div>
       <div class="question-wrap" id="questionWrap"><div class="q" id="question"></div><button class="icon-button audio-button" id="speakQuestion" type="button" aria-label="朗读题目" title="朗读题目">🔊</button></div>
       <div id="questionMedia"></div>
       <div id="choices"></div>
+      <p class="skip-tag hidden" id="skipTag"></p>
       <p class="researcher-script hidden" id="researcherScript"></p>
       <p class="quiz-status hidden" id="quizStatus" aria-live="polite"></p>
     </section>
@@ -205,6 +233,14 @@
         <h3>切换到哪一部分</h3>
         <div id="partsList" class="parts-list"></div>
         <div class="overlay-actions"><button class="small" id="partsClose" type="button">取消</button><button class="small" id="finishNow" type="button">结束并出结果</button></div>
+      </div>
+    </div>
+    <div id="skipOverlay" class="overlay hidden">
+      <div class="overlay-panel">
+        <h3>跳过原因</h3>
+        <div class="skip-scope"><button class="small" id="skipScopeOne" type="button">仅本题</button><button class="small" id="skipScopePart" type="button">本部分剩余题</button></div>
+        <div id="skipList" class="parts-list"></div>
+        <div class="overlay-actions"><button class="small" id="skipClose" type="button">取消</button></div>
       </div>
     </div>
     <section id="done" class="card hidden">

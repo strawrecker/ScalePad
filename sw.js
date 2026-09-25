@@ -1,7 +1,13 @@
-const CACHE_NAME = 'bip-evaluation-v8';
+const CACHE_NAME = 'bip-evaluation-v9';
 const CORE_FILES = ['./', './index.html', './app.js', './presets.js', './manifest.json'];
 const numbered = (folder, prefix, count) => Array.from({ length: count }, (_, index) => `./${folder}/${prefix}${String(index + 1).padStart(2, '0')}.png`);
+const sequence = (folder, count) => Array.from({ length: count }, (_, index) => {
+  const base = `./${folder}/item${String(index + 1).padStart(2, '0')}`;
+  return [`${base}-dots.svg`, `${base}-arrow.svg`];
+}).flat();
 const MATERIAL_FILES = [
+  ...sequence('assets/spatial-seq-a', 16),
+  ...sequence('assets/spatial-seq-b', 16),
   ...numbered('assets/animal', 'item', 15),
   ...numbered('assets/colors', 'item', 13),
   ...numbered('assets/spatial-a', 'item', 16),

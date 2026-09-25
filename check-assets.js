@@ -24,7 +24,7 @@ const presets = runInSandbox('presets.js', { window: {}, console }).window.scale
 const used = new Set();
 const collect = (value) => {
   if (typeof value === 'string') {
-    if (value.endsWith('.png')) used.add(strip(value));
+    if (/\.(png|svg)$/.test(value)) used.add(strip(value));
     return;
   }
   if (Array.isArray(value)) return value.forEach(collect);
