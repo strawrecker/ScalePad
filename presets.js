@@ -3,7 +3,7 @@
  *              audioText 朗读文本, options 选项, response, correct 正确答案,
  *              scoring 'auto'|'manual'|'scale', values 量表分值, image, ageBand,
  *              delivery 'audio' 纯语音题, sequence 先黑点后箭头的刺激序列, needsLetters 需要认识英文字母 }
- * delivery 为 'audio' 的题屏幕上不出现题目，只提示“请把平板交给医生”，由医生播放语音；
+ * delivery 为 'audio' 的题屏幕上不出现题目，只提示“请把平板交给医生”，由医生照着读题；
  * 这类分区统一排在 BIP 视觉心理意象的最后。
  */
 
@@ -190,7 +190,7 @@ const withSequence = (def, folder) => ({
   })
 });
 
-/* 需要靠听、不能让患者看到题目的分区，统一放到最后，由医生手持平板播放 */
+/* 需要靠听、不能让患者看到题目的分区，统一放到最后，由医生手持平板读题 */
 const audioOnly = new Set(['digitCurve', 'digitLoop', 'letterBuild', 'hanziStructure', 'hanziDot', 'wordStructure']);
 const audioLast = (defs) => [...defs.filter((def) => !audioOnly.has(def.id)), ...defs.filter((def) => audioOnly.has(def.id))];
 

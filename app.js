@@ -1,9 +1,9 @@
 const defaultPresets = window.scalePadPresets || [];
 
 const presetStorageKey = 'scalepad_presets_v3';
-const voiceStorageKey = 'scalepad_voice_v1';
+const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
-const buildTag = '2026-09-25a';
+const buildTag = '2026-09-25b';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -16,7 +16,8 @@ let education = '';
 let lettersFamiliar = '';
 let skipScope = 'one';
 let sequenceTimer = null;
-let voiceEnabled = localStorage.getItem(voiceStorageKey) !== 'off';
+/* 系统合成语音发音含糊，默认关闭，由医生口头读题；需要时可在“更多设置”里打开 */
+let voiceEnabled = localStorage.getItem(voiceStorageKey) === 'on';
 let isSpeaking = false;
 let answers = [];
 let answerByQuestion = {};
@@ -813,7 +814,7 @@ function renderQuestion() {
   $('nextQuestion').disabled = nextOpenIndex(questionIndex + 1) >= activeQuestions.length;
   beginQuestionTelemetry(question);
   if (sessionId && storageReady) void writeEvent({ type: 'question_presented', ...questionFields(question), presentedAt: currentQuestionTelemetry.presentedAt });
-  /* 纯语音题：患者看不到题目，屏幕只提示交给医生，由医生播放 */
+  /* 纯听题：患者看不到题目，屏幕只提示交给医生，由医生读题 */
   const displayText = audioOnly ? '请把平板交给医生' : (question.display ?? question.text);
   $('sectionName').textContent = question.section || planLabel();
   $('sectionMeta').textContent = `${partCode(question.planIndex)} 部分 · ${question.planPreset}`;
@@ -824,10 +825,12 @@ function renderQuestion() {
   $('question').className = `q${displayText.length > 34 ? ' small' : displayText.length > 14 ? ' medium' : ''}`;
   $('questionWrap').classList.toggle('empty-question', !displayText);
   $('questionWrap').classList.toggle('handoff', audioOnly);
-  /* 患者看不到题干时，给医生留一行小字，方便核对正在播放的题目 */
+  $('speakQuestion').classList.toggle('hidden', !voiceEnabled);
+  /* 患者看不到题干时显示给医生看；纯听题由医生照着读，字号放大 */
   const script = audioOnly || (!displayText && !question.image && !question.sequence) ? question.text : '';
-  $('researcherScript').textContent = script ? `医生查看：${script}` : '';
+  $('researcherScript').textContent = script ? `${audioOnly ? '医生朗读' : '医生查看'}：${script}` : '';
   $('researcherScript').classList.toggle('hidden', !script);
+  $('researcherScript').classList.toggle('doctor-read', audioOnly);
   const skipped = savedAnswer?.skipped;
   $('skipTag').textContent = skipped ? `已跳过 · ${savedAnswer.skipCode} ${savedAnswer.skipReason}（直接作答可覆盖）` : '';
   $('skipTag').classList.toggle('hidden', !skipped);
@@ -1198,7 +1201,7 @@ function toggleSpeech() {
   speakQuestion(false);
 }
 
-/* 纯语音题由医生手动播放；已经在语音题段落里时（上一题也是语音题）自动播放。
+/* 开启合成语音时：纯听题由医生手动播放；已经在语音题段落里时（上一题也是语音题）自动播放。
  * 空间表征序列题等箭头出现后再播放。 */
 function autoSpeak(question, afterStimulus = false) {
   if (!voiceEnabled) return;
