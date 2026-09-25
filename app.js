@@ -16,6 +16,7 @@ let education = '';
 let lettersFamiliar = '';
 let skipScope = 'one';
 let sequenceTimer = null;
+let doctorScriptOpen = false;
 /* 系统合成语音发音含糊，默认关闭，由医生口头读题；需要时可在“更多设置”里打开 */
 let voiceEnabled = localStorage.getItem(voiceStorageKey) === 'on';
 let isSpeaking = false;
@@ -492,17 +493,23 @@ $('partsOverlay').onclick = (event) => { if (event.target === $('partsOverlay'))
 $('finishNow').onclick = () => { closePartsMenu(); void finish(); };
 
 function renderVoiceToggle() {
-  const button = $('voiceToggle');
-  button.textContent = voiceEnabled ? '已开启' : '已关闭';
-  button.classList.toggle('selected', voiceEnabled);
+  $('voiceOff').classList.toggle('selected', !voiceEnabled);
+  $('voiceOn').classList.toggle('selected', voiceEnabled);
+  $('quizVoiceToggle').textContent = `语音：${voiceEnabled ? '开' : '关'}`;
+  $('quizVoiceToggle').classList.toggle('selected', voiceEnabled);
+  $('speakQuestion').classList.toggle('hidden', !voiceEnabled);
 }
 
-$('voiceToggle').onclick = () => {
-  voiceEnabled = !voiceEnabled;
+function setVoice(enabled) {
+  voiceEnabled = enabled;
   localStorage.setItem(voiceStorageKey, voiceEnabled ? 'on' : 'off');
   if (!voiceEnabled) stopSpeaking();
   renderVoiceToggle();
-};
+}
+
+$('voiceOff').onclick = () => setVoice(false);
+$('voiceOn').onclick = () => setVoice(true);
+$('quizVoiceToggle').onclick = () => setVoice(!voiceEnabled);
 
 async function chooseSaveFolder() {
   if (!window.showDirectoryPicker) {
@@ -826,11 +833,10 @@ function renderQuestion() {
   $('questionWrap').classList.toggle('empty-question', !displayText);
   $('questionWrap').classList.toggle('handoff', audioOnly);
   $('speakQuestion').classList.toggle('hidden', !voiceEnabled);
-  /* 患者看不到题干时显示给医生看；纯听题由医生照着读，字号放大 */
-  const script = audioOnly || (!displayText && !question.image && !question.sequence) ? question.text : '';
-  $('researcherScript').textContent = script ? `${audioOnly ? '医生朗读' : '医生查看'}：${script}` : '';
-  $('researcherScript').classList.toggle('hidden', !script);
-  $('researcherScript').classList.toggle('doctor-read', audioOnly);
+  /* 纯听题的题目默认折叠，医生拿到平板后点开照着读。
+   * 连续的纯听题保持展开，离开这一段后重新折叠。 */
+  if (!audioOnly) doctorScriptOpen = false;
+  renderDoctorScript(question);
   const skipped = savedAnswer?.skipped;
   $('skipTag').textContent = skipped ? `已跳过 · ${savedAnswer.skipCode} ${savedAnswer.skipReason}（直接作答可覆盖）` : '';
   $('skipTag').classList.toggle('hidden', !skipped);
@@ -889,6 +895,27 @@ function renderQuestion() {
   });
   autoSpeak(question);
 }
+
+function renderDoctorScript(question) {
+  const audioOnly = question.delivery === 'audio';
+  const hiddenPrompt = !(question.display ?? question.text) && !question.image && !question.sequence;
+  const line = $('researcherScript');
+  line.classList.toggle('hidden', !audioOnly && !hiddenPrompt);
+  line.classList.toggle('doctor-read', audioOnly);
+  line.classList.toggle('collapsed', audioOnly && !doctorScriptOpen);
+  if (!audioOnly) {
+    line.textContent = hiddenPrompt ? `医生查看：${question.text}` : '';
+    return;
+  }
+  line.textContent = doctorScriptOpen ? `医生朗读：${question.text}` : '医生朗读 ▸ 点击显示题目';
+}
+
+$('researcherScript').onclick = () => {
+  const question = activeQuestions[questionIndex];
+  if (question?.delivery !== 'audio') return;
+  doctorScriptOpen = !doctorScriptOpen;
+  renderDoctorScript(question);
+};
 
 function clearSequenceTimer() {
   if (sequenceTimer) window.clearTimeout(sequenceTimer);
