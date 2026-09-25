@@ -498,6 +498,7 @@ function renderVoiceToggle() {
   $('quizVoiceToggle').textContent = `语音：${voiceEnabled ? '开' : '关'}`;
   $('quizVoiceToggle').classList.toggle('selected', voiceEnabled);
   $('speakQuestion').classList.toggle('hidden', !voiceEnabled);
+  $('questionWrap').classList.toggle('no-voice', !voiceEnabled);
 }
 
 function setVoice(enabled) {
@@ -843,6 +844,7 @@ function renderQuestion() {
   stopSpeaking();
   $('questionMedia').innerHTML = '';
   $('questionMedia').classList.remove('stimulus');
+  $('questionMedia').classList.toggle('has-image', Boolean(question.image));
   $('choices').classList.remove('pending');
   if (question.sequence) renderSequence(question, hasAnswer(savedAnswer));
   if (question.image) {

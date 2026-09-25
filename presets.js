@@ -175,9 +175,9 @@ const buildSection = (def) => {
   });
 };
 
-const withImages = (def, folder) => ({
+const withImages = (def, folder, ext = 'png') => ({
   ...def,
-  rows: def.rows.map((row, index) => [...row, `${folder}/item${String(index + 1).padStart(2, '0')}.png`])
+  rows: def.rows.map((row, index) => [...row, `${folder}/item${String(index + 1).padStart(2, '0')}.${ext}`])
 });
 
 /* 空间表征（想象版）：每题两张图，先黑点、后箭头 */
@@ -413,7 +413,7 @@ const colorNameRows = [
 const singleDigitRows = [['5', '5'], ['1', '1'], ['7', '7'], ['0', '0'], ['2', '2'], ['9', '9'], ['3', '3'], ['8', '8'], ['4', '4'], ['6', '6']];
 
 const earSection = () => withImages(section('earShapeImage', '物理细节判断测试',
-  '请回答图片上动物的耳朵是圆的还是尖的。', earImageRows, ['圆', '尖']), 'assets/animal');
+  '请回答图片上动物的耳朵是圆的还是尖的。', earImageRows, ['圆', '尖']), 'assets/animal', 'jpg');
 
 const colorSection = () => withImages(section('colorName', '颜色名称测试',
   '请说出色块的颜色。', colorNameRows, [], 'text'), 'assets/colors');

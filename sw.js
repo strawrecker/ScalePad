@@ -1,6 +1,6 @@
-const CACHE_NAME = 'bip-evaluation-v9';
+const CACHE_NAME = 'bip-evaluation-v11';
 const CORE_FILES = ['./', './index.html', './app.js', './presets.js', './manifest.json'];
-const numbered = (folder, prefix, count) => Array.from({ length: count }, (_, index) => `./${folder}/${prefix}${String(index + 1).padStart(2, '0')}.png`);
+const numbered = (folder, prefix, count, ext = 'png') => Array.from({ length: count }, (_, index) => `./${folder}/${prefix}${String(index + 1).padStart(2, '0')}.${ext}`);
 const sequence = (folder, count) => Array.from({ length: count }, (_, index) => {
   const base = `./${folder}/item${String(index + 1).padStart(2, '0')}`;
   return [`${base}-dots.svg`, `${base}-arrow.svg`];
@@ -8,7 +8,7 @@ const sequence = (folder, count) => Array.from({ length: count }, (_, index) => 
 const MATERIAL_FILES = [
   ...sequence('assets/spatial-seq-a', 16),
   ...sequence('assets/spatial-seq-b', 16),
-  ...numbered('assets/animal', 'item', 15),
+  ...numbered('assets/animal', 'item', 15, 'jpg'),
   ...numbered('assets/colors', 'item', 13),
   ...numbered('assets/spatial-a', 'item', 16),
   ...numbered('assets/spatial-b', 'item', 16),
