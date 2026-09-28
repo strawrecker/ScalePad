@@ -152,6 +152,10 @@
     #questionMedia.stimulus + #choices { flex: 0 0 110px; }
     #questionMedia.stimulus img { width: 100%; height: 100%; max-width: none; max-height: none; border-radius: 0; background: #fff; object-fit: contain; }
     #questionMedia .stimulus-start { width: auto; padding: 22px 40px; font-size: clamp(24px, 3.4vw, 40px); }
+    .setup-note { margin: 12px 0 0; padding: 10px 14px; border-radius: 10px; background: #f4f7fb; color: #486581; font-size: 16px; }
+    .mark-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .mark-row button { margin: 0; }
+    .export-note { margin: 12px 0 0; color: #627d98; font-size: 15px; line-height: 1.5; }
     .skip-tag { flex: none; margin: 6px 0 0; padding: 8px; border-radius: 8px; background: #fff4e5; color: #9a5b00; text-align: center; font-size: 17px; font-weight: 700; }
     .skip-scope { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
     .skip-scope button { margin: 0; padding: 12px; font-size: 18px; }
@@ -216,6 +220,7 @@
         <button class="small" id="voiceOn" type="button">开启</button>
         <em>默认关闭，由医生口头读题；答题中也可随时切换</em>
       </div>
+      <p class="setup-note">医生记录的题目用数字标记对错：<strong>1 正确　2 错误　3 不确定</strong>（按钮只显示数字，患者看不出含义）</p>
       <label>选择量表（按点击顺序作答，答题中可随时切换部分）</label>
       <div id="scaleList" class="scale-list"></div>
       <button id="start">开始</button>
@@ -264,7 +269,8 @@
       <div id="sectionResults"></div>
       <div id="dashboard" class="dashboard"></div>
       <div id="logPath" class="log-path"></div>
-      <div class="dashboard-actions"><button class="small" id="csv">导出 CSV（下载）</button><button class="small" id="json">导出 JSON（下载）</button><button class="small" id="again">开始下一位患者</button></div>
+      <div class="dashboard-actions"><button class="small" id="csv">导出结果表（CSV）</button><button class="small" id="json">导出完整备份（JSON）</button><button class="small" id="again">开始下一位患者</button></div>
+      <p class="export-note"><strong>结果表（CSV）</strong>：每题一行，含回答、医生标记、对错、跳过代码和用时，用 Numbers 或 Excel 打开即可查看。<br><strong>完整备份（JSON）</strong>：包含每一次点击的原始记录，供数据分析或出问题时恢复用。在“文件”App 里会显示成文本文档，平时不需要打开，保存好即可。</p>
     </section>
     <section id="editor" class="card hidden">
       <div class="editor-top"><h2>问卷编辑</h2><button class="small" id="backToSetup">返回答题</button></div>

@@ -3,7 +3,7 @@ const defaultPresets = window.scalePadPresets || [];
 const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
-const buildTag = '2026-09-25b';
+const buildTag = '2026-09-28a';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -58,6 +58,10 @@ const skipReasons = [
   ['009', '其他原因']
 ];
 const skipReasonLabel = (code) => skipReasons.find(([key]) => key === code)?.[1] || '';
+
+/* 医生对口头回答的标记：按钮只显示数字，患者看不出对错 */
+const markLabels = { 1: '正确', 2: '错误', 3: '不确定' };
+const markLegend = Object.entries(markLabels).map(([mark, label]) => `${mark} ${label}`).join('；');
 
 function planLabel() {
   if (!activePlan.length) return '未选择';
@@ -287,7 +291,13 @@ function scaleScore(question, answer) {
 }
 
 function hasAnswer(record) {
-  return Boolean(record) && String(record.answer ?? '').trim() !== '';
+  return Boolean(record) && !record.skipped && (String(record.answer ?? '').trim() !== '' || Boolean(record.mark));
+}
+
+/* 有医生标记时以标记为准，否则按标准答案比对 */
+function recordCorrect(question, record) {
+  if (record.mark) return record.mark === '1';
+  return isCorrect(question, record.answer);
 }
 
 /* 按分区汇总：答对 / 已答（总题数） */
@@ -297,7 +307,7 @@ function sectionStats() {
   activeQuestions.forEach((question, index) => {
     const key = question.planIndex ?? (question.section || '未分区');
     if (!groups.has(key)) {
-      groups.set(key, { code: partCode(order.length), name: question.section || '未分区', source: question.planPreset || '', scoring: question.scoring || 'auto', total: 0, answered: 0, correct: 0, score: 0, maxScore: 0, skipped: 0, skipCodes: {} });
+      groups.set(key, { code: partCode(order.length), name: question.section || '未分区', source: question.planPreset || '', scoring: question.scoring || 'auto', total: 0, answered: 0, correct: 0, uncertain: 0, score: 0, maxScore: 0, skipped: 0, skipCodes: {} });
       order.push(key);
     }
     const group = groups.get(key);
@@ -312,7 +322,8 @@ function sectionStats() {
     if (!hasAnswer(record)) return;
     group.answered += 1;
     if (group.scoring === 'scale') group.score += scaleScore(question, record.answer);
-    else if (group.scoring === 'auto' && isCorrect(question, record.answer)) group.correct += 1;
+    else if (record.mark === '3') group.uncertain += 1;
+    else if ((group.scoring === 'auto' || record.mark) && recordCorrect(question, record)) group.correct += 1;
   });
   return order.map((key) => groups.get(key));
 }
@@ -870,15 +881,23 @@ function renderQuestion() {
       currentQuestionTelemetry.inputChangeCount += 1;
       void writeEvent({ type: 'input_activity', ...questionFields(question), valueLength: input.value.length, inputChangeCount: currentQuestionTelemetry.inputChangeCount });
     });
-    const record = document.createElement('button');
-    record.className = 'choice';
-    record.textContent = '下一题';
-    if (savedAnswer) record.classList.add('selected');
-    record.onclick = () => {
-      record.classList.add('selected');
-      scheduleNext(question, input.value.trim());
-    };
-    $('choices').append(input, record);
+    /* 医生按 1/2/3 标记对错后进入下一题；回答文字可记可不记 */
+    const marks = document.createElement('div');
+    marks.className = 'mark-row';
+    Object.keys(markLabels).forEach((mark) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'choice mark';
+      button.textContent = mark;
+      if (savedAnswer?.mark === mark) button.classList.add('selected');
+      button.onclick = () => {
+        marks.querySelectorAll('.mark').forEach((item) => item.classList.remove('selected'));
+        button.classList.add('selected');
+        scheduleNext(question, input.value.trim(), mark);
+      };
+      marks.append(button);
+    });
+    $('choices').append(input, marks);
     autoSpeak(question);
     return;
   }
@@ -962,7 +981,7 @@ function renderSequence(question, answered) {
   $('questionMedia').append(start);
 }
 
-function scheduleNext(question, answer) {
+function scheduleNext(question, answer, mark = '') {
   registerAction(answer, question.response === 'text' ? 'input' : 'choice');
   const revision = pendingRevision + 1;
   pendingRevision = revision;
@@ -970,6 +989,7 @@ function scheduleNext(question, answer) {
     type: 'selection',
     ...questionFields(question),
     answer,
+    ...(mark ? { mark } : {}),
     selectedAt: new Date().toISOString(),
     ...telemetrySnapshot()
   });
@@ -977,6 +997,7 @@ function scheduleNext(question, answer) {
     index: questionIndex,
     question: question.text,
     answer,
+    mark,
     selectedAt: new Date().toISOString(),
     revision,
     selectionEvent
@@ -1012,6 +1033,7 @@ async function commitPendingAnswer() {
     index: pending.index,
     question: pending.question,
     answer: pending.answer,
+    ...(pending.mark ? { mark: pending.mark, markLabel: markLabels[pending.mark] } : {}),
     selectedAt: pending.selectedAt,
     time: new Date(completedAt).toISOString(),
     answerDurationMs: Math.max(0, new Date(pending.selectedAt).getTime() - (currentQuestionTelemetry?.presentedAtMs || completedAt)),
@@ -1292,31 +1314,29 @@ function renderSectionResults() {
   const stats = sectionStats();
   const rows = stats.map((group) => {
     const unanswered = group.total - group.answered - group.skipped;
-    const skipNote = [group.skipped ? `跳过 ${group.skipped}（${formatSkipCodes(group.skipCodes)}）` : '', unanswered ? `未作答 ${unanswered}` : ''].filter(Boolean).join('<br>');
+    const skipNote = [group.skipped ? `跳过 ${group.skipped}（${formatSkipCodes(group.skipCodes)}）` : '', unanswered ? `未作答 ${unanswered}` : '', group.uncertain ? `标记 3（不确定）${group.uncertain}，不计入正确率` : ''].filter(Boolean).join('<br>');
+    const judged = group.answered - group.uncertain;
     let result;
     let rate;
     if (group.scoring === 'scale') {
       result = `总分 ${group.score}${group.maxScore ? ` / ${group.maxScore}` : ''}`;
       rate = `已答 ${group.answered}/${group.total}`;
-    } else if (group.scoring === 'manual') {
-      result = `${group.answered} / ${group.total}`;
-      rate = '人工评分';
     } else {
-      result = group.answered ? `${group.correct}/${group.answered} (${group.total})` : `${group.skipped === group.total ? '全部跳过' : '未作答'} (${group.total})`;
-      rate = group.answered ? `${Math.round((group.correct / group.answered) * 100)}%` : '—';
+      result = group.answered ? `${group.correct}/${judged} (${group.total})` : `${group.skipped === group.total ? '全部跳过' : '未作答'} (${group.total})`;
+      rate = judged ? `${Math.round((group.correct / judged) * 100)}%` : '—';
     }
     return `<tr><td>${escapeHtml(group.code)} · ${escapeHtml(group.name)}<small>${escapeHtml(group.source)}</small></td><td class="result">${escapeHtml(result)}</td><td class="rate">${escapeHtml(rate)}</td><td class="skip">${skipNote}</td></tr>`;
   });
-  const scored = stats.filter((group) => group.scoring === 'auto');
+  const scored = stats.filter((group) => group.scoring !== 'scale');
   const totals = scored.reduce((sum, group) => ({
     correct: sum.correct + group.correct,
-    answered: sum.answered + group.answered,
+    answered: sum.answered + group.answered - group.uncertain,
     total: sum.total + group.total
   }), { correct: 0, answered: 0, total: 0 });
   const totalRow = scored.length
-    ? `<tr class="total"><td>客观题合计</td><td class="result">${totals.correct}/${totals.answered} (${totals.total})</td><td class="rate">${totals.answered ? `${Math.round((totals.correct / totals.answered) * 100)}%` : '—'}</td><td class="skip"></td></tr>`
+    ? `<tr class="total"><td>合计（不含量表）</td><td class="result">${totals.correct}/${totals.answered} (${totals.total})</td><td class="rate">${totals.answered ? `${Math.round((totals.correct / totals.answered) * 100)}%` : '—'}</td><td class="skip"></td></tr>`
     : '';
-  const legend = `<p class="muted">跳过代码：${skipReasons.map(([code, label]) => `${code} ${label}`).join('；')}</p>`;
+  const legend = `<p class="muted">医生标记：${markLegend}<br>跳过代码：${skipReasons.map(([code, label]) => `${code} ${label}`).join('；')}</p>`;
   $('sectionResults').innerHTML = `<table class="section-table"><thead><tr><th>分区</th><th>答对/已答（总题数）</th><th>正确率</th><th>跳过（代码×题数）</th></tr></thead><tbody>${rows.join('')}${totalRow}</tbody></table>${legend}`;
 }
 
@@ -1418,6 +1438,7 @@ async function download(extension, type) {
     education,
     lettersFamiliar,
     skipReasons: Object.fromEntries(skipReasons),
+    markLabels,
     preset: planLabel(),
     plan: activePlan,
     startedAt: sessionStartedAt ? new Date(sessionStartedAt).toISOString() : null,
@@ -1431,21 +1452,21 @@ async function download(extension, type) {
     if (!question) return ['', '', ''];
     if (answer.skipped) return ['', '', question.correct ?? ''];
     if (question.scoring === 'scale') return ['', String(scaleScore(question, answer.answer)), ''];
-    if (question.scoring === 'manual') return ['', '', question.correct ?? ''];
-    return [isCorrect(question, answer.answer) ? '1' : '0', '', question.correct ?? ''];
+    if (answer.mark === '3' || (question.scoring === 'manual' && !answer.mark)) return ['', '', question.correct ?? ''];
+    return [recordCorrect(question, answer) ? '1' : '0', '', question.correct ?? ''];
   };
   const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
   const answerRows = answers.map((answer) => {
     const [correct, score, expected] = describe(answer);
-    return [patient, patientAge, ageBand, education, lettersFamiliar, planLabel(), answer.questionIndex, answer.section, answer.question, answer.answer, expected, correct, score,
+    return [patient, patientAge, ageBand, education, lettersFamiliar, planLabel(), answer.questionIndex, answer.section, answer.question, answer.answer, answer.mark, answer.markLabel, expected, correct, score,
       answer.skipCode, answer.skipReason, answer.time, answer.answerDurationMs, answer.confirmationDelayMs, answer.reactionTimeMs, answer.answerChanges, answer.audioPlayCount].map(quote).join(',');
   });
-  const statRows = stats.map((group) => [`${group.code} 部分`, group.name, group.scoring, group.correct, group.answered, group.skipped, formatSkipCodes(group.skipCodes), group.total, group.score].map(quote).join(','));
+  const statRows = stats.map((group) => [`${group.code} 部分`, group.name, group.scoring, group.correct, group.answered, group.uncertain, group.skipped, formatSkipCodes(group.skipCodes), group.total, group.score].map(quote).join(','));
   const content = type === 'json'
     ? JSON.stringify(data, null, 2)
-    : '\uFEFFpatient,age,ageBand,education,lettersFamiliar,preset,questionIndex,section,question,answer,expected,correct,score,skipCode,skipReason,time,answerDurationMs,confirmationDelayMs,reactionTimeMs,answerChanges,audioPlayCount\n'
+    : '\uFEFFpatient,age,ageBand,education,lettersFamiliar,preset,questionIndex,section,question,answer,mark,markLabel,expected,correct,score,skipCode,skipReason,time,answerDurationMs,confirmationDelayMs,reactionTimeMs,answerChanges,audioPlayCount\n'
       + answerRows.join('\n')
-      + '\n\n类型,分区,评分方式,答对,已答,跳过,跳过代码,总题数,量表总分\n'
+      + '\n\n类型,分区,评分方式,答对,已答,标记不确定,跳过,跳过代码,总题数,量表总分\n'
       + statRows.join('\n');
   const filename = `${safeFilePart(patient)}_${sessionId || Date.now()}.${extension}`;
   const mime = type === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8';
