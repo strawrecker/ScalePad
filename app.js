@@ -3,7 +3,7 @@ const defaultPresets = window.scalePadPresets || [];
 const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
-const buildTag = '2026-09-28a';
+const buildTag = '2026-09-28d';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -24,6 +24,9 @@ let answers = [];
 let answerByQuestion = {};
 let patient = '';
 let patientAge = '';
+let patientName = '';
+let patientOccupation = '';
+let patientGender = '';
 let editingIndex = null;
 let directoryHandle = null;
 let advanceTimer = null;
@@ -322,6 +325,7 @@ function sectionStats() {
     if (!hasAnswer(record)) return;
     group.answered += 1;
     if (group.scoring === 'scale') group.score += scaleScore(question, record.answer);
+    else if (group.scoring === 'record') return;
     else if (record.mark === '3') group.uncertain += 1;
     else if ((group.scoring === 'auto' || record.mark) && recordCorrect(question, record)) group.correct += 1;
   });
@@ -423,6 +427,11 @@ function bandFromAge() {
   return Number(age) < 31 ? 'young' : 'older';
 }
 
+/* 儿童版问卷单独成组，由医生按需勾选 */
+function presetGroup(preset) {
+  return defaultPresets.find((item) => item.name === preset.name)?.group || '';
+}
+
 function planPresets() {
   return plan.map((name) => presets.find((preset) => preset.name === name)).filter(Boolean);
 }
@@ -434,7 +443,16 @@ function planNeedsLetters() {
 function renderScaleList() {
   const list = $('scaleList');
   list.innerHTML = '';
+  let lastGroup = '';
   presets.forEach((preset) => {
+    const group = presetGroup(preset);
+    if (group === 'child' && lastGroup !== 'child') {
+      const heading = document.createElement('p');
+      heading.className = 'scale-group';
+      heading.textContent = '儿童版问卷（按需选择）';
+      list.append(heading);
+    }
+    lastGroup = group;
     const order = plan.indexOf(preset.name);
     const item = document.createElement('button');
     item.type = 'button';
@@ -462,6 +480,7 @@ function renderScaleList() {
   $('bandYoung').classList.toggle('selected', ageBand === 'young');
   $('bandOlder').classList.toggle('selected', ageBand === 'older');
   document.querySelectorAll('[data-education]').forEach((button) => button.classList.toggle('selected', button.dataset.education === education));
+  document.querySelectorAll('[data-gender]').forEach((button) => button.classList.toggle('selected', button.dataset.gender === patientGender));
   $('lettersYes').classList.toggle('selected', lettersFamiliar === 'yes');
   $('lettersNo').classList.toggle('selected', lettersFamiliar === 'no');
   $('lettersNote').textContent = lettersFamiliar === 'no'
@@ -472,6 +491,9 @@ function renderScaleList() {
 $('bandYoung').onclick = () => { ageBand = 'young'; renderScaleList(); };
 $('bandOlder').onclick = () => { ageBand = 'older'; renderScaleList(); };
 $('epilepsyNo').onclick = () => { epilepsy = 'no'; renderScaleList(); };
+document.querySelectorAll('[data-gender]').forEach((button) => {
+  button.onclick = () => { patientGender = button.dataset.gender; renderScaleList(); };
+});
 document.querySelectorAll('[data-education]').forEach((button) => {
   button.onclick = () => { education = button.dataset.education; renderScaleList(); };
 });
@@ -551,6 +573,8 @@ async function startSession() {
   const unlock = () => { $('start').disabled = false; isStarting = false; };
   patient = $('patient').value.trim() || '未填写';
   patientAge = $('patientAge').value.trim();
+  patientName = $('patientName').value.trim();
+  patientOccupation = $('patientOccupation').value.trim();
   if (patientAge && (!/^\d+$/.test(patientAge) || Number(patientAge) > 120)) {
     window.alert('年龄请输入 0 到 120 之间的整数。');
     unlock();
@@ -611,6 +635,7 @@ async function startSession() {
       id: sessionId,
       patient,
       age: patientAge || null,
+      ...patientProfile(),
       preset: planLabel(),
       plan: activePlan,
       ageBand,
@@ -621,7 +646,7 @@ async function startSession() {
       startedAt: new Date(sessionStartedAt).toISOString(),
       status: 'active'
     });
-    if (!(await writeEvent({ type: 'session_started', patient, age: patientAge || null, preset: planLabel(), ageBand, epilepsy, education, lettersFamiliar, questionCount: activeQuestions.length }))) throw new Error('无法写入测试开始记录');
+    if (!(await writeEvent({ type: 'session_started', patient, age: patientAge || null, ...patientProfile(), preset: planLabel(), ageBand, epilepsy, education, lettersFamiliar, questionCount: activeQuestions.length }))) throw new Error('无法写入测试开始记录');
   } catch (error) {
     reportStorageFailure(error, '测试开始记录');
     unlock();
@@ -1321,13 +1346,16 @@ function renderSectionResults() {
     if (group.scoring === 'scale') {
       result = `总分 ${group.score}${group.maxScore ? ` / ${group.maxScore}` : ''}`;
       rate = `已答 ${group.answered}/${group.total}`;
+    } else if (group.scoring === 'record') {
+      result = `已答 ${group.answered}/${group.total}`;
+      rate = '仅记录回答';
     } else {
       result = group.answered ? `${group.correct}/${judged} (${group.total})` : `${group.skipped === group.total ? '全部跳过' : '未作答'} (${group.total})`;
       rate = judged ? `${Math.round((group.correct / judged) * 100)}%` : '—';
     }
     return `<tr><td>${escapeHtml(group.code)} · ${escapeHtml(group.name)}<small>${escapeHtml(group.source)}</small></td><td class="result">${escapeHtml(result)}</td><td class="rate">${escapeHtml(rate)}</td><td class="skip">${skipNote}</td></tr>`;
   });
-  const scored = stats.filter((group) => group.scoring !== 'scale');
+  const scored = stats.filter((group) => group.scoring !== 'scale' && group.scoring !== 'record');
   const totals = scored.reduce((sum, group) => ({
     correct: sum.correct + group.correct,
     answered: sum.answered + group.answered - group.uncertain,
@@ -1403,6 +1431,7 @@ async function finish() {
       id: sessionId,
       patient,
       age: patientAge || null,
+      ...patientProfile(),
       preset: planLabel(),
       startedAt: new Date(sessionStartedAt).toISOString(),
       completedAt,
@@ -1417,12 +1446,17 @@ async function finish() {
   $('quiz').classList.add('hidden');
   $('done').classList.remove('hidden');
   updateHomeButton();
-  $('summary').textContent = `患者 ${patient}${patientAge ? `（${patientAge} 岁）` : ''}${education ? ` · ${education}` : ''}${lettersFamiliar === 'no' ? ' · 不熟悉英文字母' : ''} · ${new Date().toLocaleString('zh-CN')} · 共 ${activePlan.length} 个部分 / ${activeQuestions.length} 题${ageBand ? ` · 名人题${ageBand === 'young' ? '18–30 岁版' : '31–60 岁版'}` : ''}`;
+  const profileText = [patientName, patientGender, patientAge ? `${patientAge} 岁` : '', patientOccupation].filter(Boolean).join('，');
+  $('summary').textContent = `患者 ${patient}${profileText ? `（${profileText}）` : ''}${education ? ` · ${education}` : ''}${lettersFamiliar === 'no' ? ' · 不熟悉英文字母' : ''} · ${new Date().toLocaleString('zh-CN')} · 共 ${activePlan.length} 个部分 / ${activeQuestions.length} 题${ageBand && activeQuestions.some((question) => question.ageBand) ? ` · 名人题${ageBand === 'young' ? '18–30 岁版' : '31–60 岁版'}` : ''}`;
   renderSectionResults();
   renderDashboard();
   $('logPath').textContent = directoryHandle
     ? `实时日志路径：${directoryHandle.name}/${directoryLogFileName}`
     : `实时日志路径：本机离线存储 / ScalePad-logs / ${sessionId}（完成后可导出到“下载”或自定义位置）`;
+}
+
+function patientProfile() {
+  return { name: patientName || null, gender: patientGender || null, occupation: patientOccupation || null };
 }
 
 async function download(extension, type) {
@@ -1433,6 +1467,7 @@ async function download(extension, type) {
     sessionId,
     patient,
     age: patientAge || null,
+    ...patientProfile(),
     ageBand,
     epilepsy,
     education,
@@ -1452,19 +1487,20 @@ async function download(extension, type) {
     if (!question) return ['', '', ''];
     if (answer.skipped) return ['', '', question.correct ?? ''];
     if (question.scoring === 'scale') return ['', String(scaleScore(question, answer.answer)), ''];
+    if (question.scoring === 'record') return ['', '', ''];
     if (answer.mark === '3' || (question.scoring === 'manual' && !answer.mark)) return ['', '', question.correct ?? ''];
     return [recordCorrect(question, answer) ? '1' : '0', '', question.correct ?? ''];
   };
   const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
   const answerRows = answers.map((answer) => {
     const [correct, score, expected] = describe(answer);
-    return [patient, patientAge, ageBand, education, lettersFamiliar, planLabel(), answer.questionIndex, answer.section, answer.question, answer.answer, answer.mark, answer.markLabel, expected, correct, score,
+    return [patient, patientName, patientGender, patientAge, patientOccupation, ageBand, education, lettersFamiliar, planLabel(), answer.questionIndex, answer.section, answer.question, answer.answer, answer.mark, answer.markLabel, expected, correct, score,
       answer.skipCode, answer.skipReason, answer.time, answer.answerDurationMs, answer.confirmationDelayMs, answer.reactionTimeMs, answer.answerChanges, answer.audioPlayCount].map(quote).join(',');
   });
   const statRows = stats.map((group) => [`${group.code} 部分`, group.name, group.scoring, group.correct, group.answered, group.uncertain, group.skipped, formatSkipCodes(group.skipCodes), group.total, group.score].map(quote).join(','));
   const content = type === 'json'
     ? JSON.stringify(data, null, 2)
-    : '\uFEFFpatient,age,ageBand,education,lettersFamiliar,preset,questionIndex,section,question,answer,mark,markLabel,expected,correct,score,skipCode,skipReason,time,answerDurationMs,confirmationDelayMs,reactionTimeMs,answerChanges,audioPlayCount\n'
+    : '\uFEFFpatient,name,gender,age,occupation,ageBand,education,lettersFamiliar,preset,questionIndex,section,question,answer,mark,markLabel,expected,correct,score,skipCode,skipReason,time,answerDurationMs,confirmationDelayMs,reactionTimeMs,answerChanges,audioPlayCount\n'
       + answerRows.join('\n')
       + '\n\n类型,分区,评分方式,答对,已答,标记不确定,跳过,跳过代码,总题数,量表总分\n'
       + statRows.join('\n');

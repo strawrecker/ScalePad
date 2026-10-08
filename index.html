@@ -23,7 +23,10 @@
     .card { width: 100%; height: 100%; padding: 24px 4vw calc(18px + env(safe-area-inset-bottom)); background: #fff; }
     #setup, #done { max-width: 1180px; height: auto; max-height: calc(100% - 44px); margin: 22px auto; overflow-y: auto; border-radius: 16px; box-shadow: 0 4px 18px #1232; -webkit-overflow-scrolling: touch; }
     #setup > label { display: block; margin-top: 20px; font-size: 18px; font-weight: 600; }
-    .start-row { display: grid; grid-template-columns: 1fr 160px; gap: 16px; }
+    .start-row { display: grid; grid-template-columns: 1fr 1fr 120px; gap: 16px; }
+    .start-row.second { grid-template-columns: 1fr auto; align-items: end; }
+    .start-row .confirm-row { margin: 8px 0 18px; }
+    .scale-group { margin: 10px 0 0; color: #627d98; font-size: 15px; font-weight: 600; }
     .start-row label { display: block; font-size: 18px; font-weight: 600; }
     .confirm-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 4px; font-size: 18px; font-weight: 600; }
     .confirm-row button { width: auto; margin: 0; padding: 10px 22px; border-radius: 10px; font-size: 17px; }
@@ -186,7 +189,12 @@
     <section id="setup" class="card">
       <div class="start-row">
         <div><label for="patient">患者编号</label><input id="patient" placeholder="例如 P001" autocomplete="off"></div>
+        <div><label for="patientName">姓名</label><input id="patientName" placeholder="患者姓名" autocomplete="off"></div>
         <div><label for="patientAge">年龄</label><input id="patientAge" type="number" min="0" max="120" step="1" placeholder="例如 24" inputmode="numeric" autocomplete="off"></div>
+      </div>
+      <div class="start-row second">
+        <div><label for="patientOccupation">职业</label><input id="patientOccupation" placeholder="例如 学生、教师、退休" autocomplete="off"></div>
+        <div class="confirm-row"><span>性别</span><button class="small" type="button" data-gender="男">男</button><button class="small" type="button" data-gender="女">女</button></div>
       </div>
       <div class="confirm-row">
         <span>癫痫病史</span>
