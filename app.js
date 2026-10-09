@@ -3,7 +3,7 @@ const defaultPresets = window.scalePadPresets || [];
 const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
-const buildTag = '2026-10-10a';
+const buildTag = '2026-10-10b';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -511,7 +511,7 @@ $('buildTag').textContent = `版本 ${buildTag}`;
 $('patientAge').oninput = () => { ageBand = bandFromAge() || ageBand; renderScaleList(); };
 
 $('chooseSaveFolder').onclick = chooseSaveFolder;
-$('homeButton').onclick = goHome;
+setupHomeButton();
 $('prevQuestion').onclick = () => navigateTo(nextOpenIndex(questionIndex - 1, -1));
 $('nextQuestion').onclick = () => navigateTo(nextOpenIndex(questionIndex + 1));
 $('skipButton').onclick = openSkipMenu;
@@ -1322,6 +1322,45 @@ function speakQuestion(auto = false) {
 function updateHomeButton() {
   const onSetup = !$('setup').classList.contains('hidden');
   $('homeButton').classList.toggle('hidden', onSetup);
+  $('homeButton').classList.toggle('guarded', !$('quiz').classList.contains('hidden'));
+  $('homeHint').classList.add('hidden');
+}
+
+/* 答题中：按住 1.5 秒才回首页，轻点只提示；结果页、编辑页点一下即可 */
+function setupHomeButton() {
+  const button = $('homeButton');
+  const hint = $('homeHint');
+  let holdTimer = null;
+  let hintTimer = null;
+  const showHint = (text) => {
+    hint.textContent = text;
+    hint.classList.remove('hidden');
+    if (hintTimer) window.clearTimeout(hintTimer);
+    hintTimer = window.setTimeout(() => hint.classList.add('hidden'), 1800);
+  };
+  const release = () => {
+    if (!holdTimer) return;
+    window.clearTimeout(holdTimer);
+    holdTimer = null;
+    button.classList.remove('holding');
+    showHint('长按回首页');
+  };
+  button.addEventListener('pointerdown', (event) => {
+    if (!button.classList.contains('guarded')) return;
+    event.preventDefault();
+    button.classList.add('holding');
+    showHint('继续按住…');
+    holdTimer = window.setTimeout(() => {
+      holdTimer = null;
+      button.classList.remove('holding');
+      void goHome();
+    }, 1500);
+  });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach((type) => button.addEventListener(type, release));
+  button.addEventListener('contextmenu', (event) => event.preventDefault());
+  button.onclick = () => {
+    if (!button.classList.contains('guarded')) void goHome();
+  };
 }
 
 /* 从答题或结果页回首页：测试不丢，首页“最近测试”里可继续作答或查看结果。

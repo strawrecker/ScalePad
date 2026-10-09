@@ -123,6 +123,10 @@
     button.icon-button { display: flex; align-items: center; justify-content: center; flex: none; width: 64px; height: 56px; margin: 0; padding: 0; border-radius: 12px; background: #e3eefb; color: #102a43; font-size: 44px; line-height: 1; }
     button.icon-button svg { display: block; width: 34px; height: 34px; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; fill: none; }
     header .home-button svg { width: 32px; height: 32px; stroke-width: 2.2; }
+    /* 答题中回首页要长按，防止患者误触 */
+    header .home-button.guarded { background: #ffffff26; color: #ffffffb3; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: none; }
+    header .home-button.guarded.holding { background: #fff; color: #0b6bcb; transition: background 1.5s linear, color 1.5s linear; }
+    .home-hint { position: absolute; top: 50%; left: 92px; padding: 6px 12px; border-radius: 8px; background: #fff; color: #0b6bcb; font-size: 16px; font-weight: 700; transform: translateY(-50%); pointer-events: none; }
     button.icon-button:disabled { opacity: .4; }
     .question-wrap { display: flex; align-items: center; justify-content: center; gap: 18px; flex: 1; min-height: 0; }
     .question-wrap .q { min-width: 0; }
@@ -194,7 +198,7 @@
   </style>
 </head>
 <body>
-  <header><h1>BIP评估</h1><button class="home-button hidden" id="homeButton" type="button" aria-label="回到主界面" title="回到主界面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7"></path><path d="M5 9.5V21h14V9.5"></path><path d="M9 21v-6h6v6"></path></svg></button></header>
+  <header><h1>BIP评估</h1><button class="home-button hidden" id="homeButton" type="button" aria-label="回到主界面" title="回到主界面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7"></path><path d="M5 9.5V21h14V9.5"></path><path d="M9 21v-6h6v6"></path></svg></button><span class="home-hint hidden" id="homeHint"></span></header>
   <main>
     <section id="setup" class="card">
       <div id="recentSessions" class="recent-sessions hidden"></div>
