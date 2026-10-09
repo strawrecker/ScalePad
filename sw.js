@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bip-evaluation-v13';
+const CACHE_NAME = 'bip-evaluation-v14';
 const CORE_FILES = ['./', './index.html', './app.js', './presets.js', './manifest.json'];
 const numbered = (folder, prefix, count, ext = 'png') => Array.from({ length: count }, (_, index) => `./${folder}/${prefix}${String(index + 1).padStart(2, '0')}.${ext}`);
 const sequence = (folder, count) => Array.from({ length: count }, (_, index) => {

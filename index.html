@@ -178,7 +178,17 @@
     .metric strong { display: block; color: #627d98; font-size: 16px; font-weight: 600; }
     .metric span { display: block; margin-top: 4px; color: #102a43; font-size: clamp(24px, 3vw, 34px); font-weight: 700; }
     .log-path { margin: 16px 0; padding: 14px 16px; border-radius: 10px; background: #edf7f1; color: #087443; font-size: 16px; line-height: 1.45; overflow-wrap: anywhere; }
+    .recent-sessions { margin-bottom: 18px; padding: 14px 16px; border: 2px solid #c9ddf7; border-radius: 12px; background: #f4f8fd; }
+    .recent-sessions h3 { margin: 0 0 4px; font-size: 18px; }
+    .recent-sessions > p { margin: 0 0 10px; color: #627d98; font-size: 14px; }
+    .session-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid #e3eaf2; }
+    .session-row .info { flex: 1; min-width: 0; font-size: 17px; font-weight: 600; line-height: 1.35; }
+    .session-row .info small { display: block; color: #627d98; font-size: 14px; font-weight: 400; }
+    .session-row .info em { margin-left: 6px; padding: 2px 8px; border-radius: 6px; background: #fff4e5; color: #9a5b00; font-size: 13px; font-style: normal; }
+    .session-row .info em.done { background: #edf7f1; color: #087443; }
+    .session-row button { width: auto; flex: none; margin: 0; padding: 10px 16px; font-size: 16px; }
     .dashboard-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .dashboard-actions #again { background: #0b6bcb; color: #fff; }
     .dashboard-actions button { margin: 0; }
     @media (max-width: 700px) { .dashboard { grid-template-columns: 1fr 1fr; } .dashboard-actions { grid-template-columns: 1fr; } }
   </style>
@@ -187,6 +197,7 @@
   <header><h1>BIP评估</h1><button class="home-button hidden" id="homeButton" type="button" aria-label="回到主界面" title="回到主界面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7"></path><path d="M5 9.5V21h14V9.5"></path><path d="M9 21v-6h6v6"></path></svg></button></header>
   <main>
     <section id="setup" class="card">
+      <div id="recentSessions" class="recent-sessions hidden"></div>
       <div class="start-row">
         <div><label for="patient">患者编号</label><input id="patient" placeholder="例如 P001" autocomplete="off"></div>
         <div><label for="patientName">姓名</label><input id="patientName" placeholder="患者姓名" autocomplete="off"></div>
@@ -272,12 +283,12 @@
       </div>
     </div>
     <section id="done" class="card hidden">
-      <h2>答题完成</h2>
+      <h2 id="doneTitle">答题完成</h2>
       <p id="summary"></p>
       <div id="sectionResults"></div>
       <div id="dashboard" class="dashboard"></div>
       <div id="logPath" class="log-path"></div>
-      <div class="dashboard-actions"><button class="small" id="csv">导出结果表（CSV）</button><button class="small" id="json">导出完整备份（JSON）</button><button class="small" id="again">开始下一位患者</button></div>
+      <div class="dashboard-actions"><button class="small" id="csv">导出结果表（CSV）</button><button class="small" id="json">导出完整备份（JSON）</button><button class="small" id="resumeQuiz">返回继续作答</button><button class="small" id="again">开始下一位患者</button></div>
       <p class="export-note"><strong>结果表（CSV）</strong>：每题一行，含回答、医生标记、对错、跳过代码和用时，用 Numbers 或 Excel 打开即可查看。<br><strong>完整备份（JSON）</strong>：包含每一次点击的原始记录，供数据分析或出问题时恢复用。在“文件”App 里会显示成文本文档，平时不需要打开，保存好即可。</p>
     </section>
     <section id="editor" class="card hidden">

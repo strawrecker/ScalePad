@@ -3,7 +3,7 @@ const defaultPresets = window.scalePadPresets || [];
 const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
-const buildTag = '2026-09-28d';
+const buildTag = '2026-10-10a';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -566,6 +566,26 @@ async function chooseSaveFolder() {
   }
 }
 
+/* 选中顺序 = 作答顺序；板块（planIndex）用于分区统计和“跳过本部分”。
+ * 恢复旧测试时用同样的规则重建题目，保证题号与记录对得上。 */
+function buildPlan(chosen, band) {
+  const steps = [];
+  const questions = [];
+  chosen.forEach((preset) => {
+    preset.questions
+      .filter((question) => !question.ageBand || question.ageBand === band)
+      .forEach((question) => {
+        const last = steps[steps.length - 1];
+        if (!last || last.preset !== preset.name || last.section !== question.section) {
+          steps.push({ preset: preset.name, section: question.section, count: 0 });
+        }
+        steps[steps.length - 1].count += 1;
+        questions.push({ ...question, planIndex: steps.length - 1, planPreset: preset.name });
+      });
+  });
+  return { plan: steps, questions };
+}
+
 async function startSession() {
   if (isStarting) return;
   isStarting = true;
@@ -601,21 +621,7 @@ async function startSession() {
     unlock();
     return;
   }
-  /* 选中顺序 = 作答顺序；板块（planIndex）用于分区统计和“跳过本部分” */
-  activePlan = [];
-  activeQuestions = [];
-  chosen.forEach((preset) => {
-    preset.questions
-      .filter((question) => !question.ageBand || question.ageBand === ageBand)
-      .forEach((question) => {
-        const last = activePlan[activePlan.length - 1];
-        if (!last || last.preset !== preset.name || last.section !== question.section) {
-          activePlan.push({ preset: preset.name, section: question.section, count: 0 });
-        }
-        activePlan[activePlan.length - 1].count += 1;
-        activeQuestions.push({ ...question, planIndex: activePlan.length - 1, planPreset: preset.name });
-      });
-  });
+  ({ plan: activePlan, questions: activeQuestions } = buildPlan(chosen, ageBand));
   if (!activeQuestions.length) {
     window.alert('所选量表没有可作答的题目。');
     unlock();
@@ -669,11 +675,17 @@ async function startSession() {
     unlock();
     return;
   }
+  showQuiz();
+  /* 必须解锁：按钮禁用后外观不变，之前回到首页后“开始”会点不动 */
+  unlock();
+}
+
+function showQuiz() {
   $('setup').classList.add('hidden');
+  $('done').classList.add('hidden');
   $('quiz').classList.remove('hidden');
   updateHomeButton();
   renderQuestion();
-  isStarting = false;
 }
 
 $('start').onclick = () => { void startSession(); };
@@ -1312,7 +1324,17 @@ function updateHomeButton() {
   $('homeButton').classList.toggle('hidden', onSetup);
 }
 
-function goHome() {
+/* 从答题或结果页回首页：测试不丢，首页“最近测试”里可继续作答或查看结果。
+ * 患者信息表单清空，避免误点“开始”给同一位患者重复建一份测试。 */
+async function goHome() {
+  const fromQuiz = !$('quiz').classList.contains('hidden');
+  const fromSession = fromQuiz || !$('done').classList.contains('hidden');
+  if (advanceTimer) window.clearTimeout(advanceTimer);
+  advanceTimer = null;
+  if (pendingAnswer) {
+    const saved = await pendingAnswer.selectionEvent;
+    if (saved) await commitPendingAnswer();
+  }
   cancelPendingAnswer();
   currentQuestionTelemetry = null;
   stopSpeaking();
@@ -1321,9 +1343,174 @@ function goHome() {
   $('done').classList.add('hidden');
   closeSkipMenu();
   closePartsMenu();
+  setQuizStatus('');
+  if (fromSession) {
+    if (fromQuiz && sessionId && storageReady) void writeEvent({ type: 'session_paused', questionIndex });
+    resetSetupForm();
+  }
   $('setup').classList.remove('hidden');
+  if (fromSession) $('setup').scrollTop = 0;
   updateHomeButton();
   renderScaleList();
+  void renderRecentSessions();
+}
+
+function resetSetupForm() {
+  ['patient', 'patientName', 'patientAge', 'patientOccupation'].forEach((id) => { $(id).value = ''; });
+  patient = '';
+  patientAge = '';
+  patientName = '';
+  patientOccupation = '';
+  patientGender = '';
+  ageBand = '';
+  epilepsy = '';
+  education = '';
+  lettersFamiliar = '';
+  $('start').disabled = false;
+  isStarting = false;
+}
+
+async function startNextPatient() {
+  await goHome();
+  sessionId = null;
+  activePlan = [];
+  activeQuestions = [];
+  answers = [];
+  answerByQuestion = {};
+  sessionEventCache = [];
+  $('patient').focus();
+}
+
+function idbGetAllSessions() {
+  return new Promise((resolve, reject) => {
+    const request = logDb.transaction('sessions', 'readonly').objectStore('sessions').getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error || new Error('无法读取测试列表'));
+  });
+}
+
+/* 从本机记录重建一次测试：题目按当时的量表和名人题版本重建，答案按事件顺序回放 */
+async function loadSession(id) {
+  await Promise.all([...eventWritePromises]);
+  if (!(await prepareStorage())) return false;
+  const record = await idbGet('sessions', id);
+  if (!record?.plan) {
+    window.alert('这条记录缺少量表信息（旧版本创建），无法恢复。');
+    return false;
+  }
+  const chosen = [...new Set(record.plan.map((step) => step.preset))].map((name) => presets.find((preset) => preset.name === name));
+  const built = chosen.every(Boolean) ? buildPlan(chosen, record.ageBand) : null;
+  if (!built || built.questions.length !== record.questionCount) {
+    window.alert('这次测试用到的问卷已被修改或删除，题目对不上，无法恢复。原始记录仍保存在本机。');
+    return false;
+  }
+  const events = await idbGetSessionEvents(id);
+  cancelPendingAnswer();
+  currentQuestionTelemetry = null;
+  sessionId = id;
+  sessionStartedAt = Date.parse(record.startedAt) || Date.now();
+  sessionSequence = events.reduce((max, event) => Math.max(max, event.sequence + 1), 0);
+  sessionEventCache = events;
+  directoryLogFileName = `${safeFilePart(record.patient)}_${id}.jsonl`;
+  patient = record.patient || '未填写';
+  patientAge = record.age || '';
+  patientName = record.name || '';
+  patientGender = record.gender || '';
+  patientOccupation = record.occupation || '';
+  ageBand = record.ageBand || '';
+  epilepsy = record.epilepsy || '';
+  education = record.education || '';
+  lettersFamiliar = record.lettersFamiliar || '';
+  activePlan = built.plan;
+  activeQuestions = built.questions;
+  answerByQuestion = {};
+  events.forEach(({ id: eventId, sessionId: owner, sequence, recordedAt, type, ...fields }) => {
+    if (type === 'answer_committed' || type === 'question_skipped') answerByQuestion[fields.index] = fields;
+  });
+  rebuildAnswers();
+  return true;
+}
+
+/* 回到第一道还没作答也没跳过的题；全部做完就停在最后一题，方便修改 */
+async function resumeQuiz() {
+  const firstOpen = activeQuestions.findIndex((question, index) => !answerByQuestion[index]);
+  questionIndex = firstOpen >= 0 ? firstOpen : activeQuestions.length - 1;
+  try {
+    await updateSessionRecord({ status: 'active' });
+  } catch (error) {
+    reportStorageFailure(error, '继续作答记录');
+    return;
+  }
+  void writeEvent({ type: 'session_resumed', questionIndex });
+  showQuiz();
+}
+
+async function openSession(id, mode) {
+  try {
+    if (!(await loadSession(id))) return;
+  } catch (error) {
+    window.alert(`读取测试记录失败：${error?.message || error}`);
+    return;
+  }
+  if (mode === 'resume') await resumeQuiz();
+  else showResults();
+}
+
+async function renderRecentSessions() {
+  const box = $('recentSessions');
+  try {
+    await openLogDb();
+    const sessions = (await idbGetAllSessions())
+      .filter((session) => session.plan)
+      .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)))
+      .slice(0, 5);
+    if (!sessions.length) {
+      box.classList.add('hidden');
+      return;
+    }
+    const rows = await Promise.all(sessions.map(async (session) => {
+      const answered = new Set();
+      (await idbGetSessionEvents(session.id)).forEach((event) => {
+        if (event.type === 'answer_committed' || event.type === 'question_skipped') answered.add(event.index);
+      });
+      return { session, answered: answered.size };
+    }));
+    box.innerHTML = '<h3>最近测试</h3><p>每题都已保存在本机。中途回到首页或退出程序后，可在这里继续作答或查看结果。</p>';
+    rows.forEach(({ session, answered }) => {
+      const row = document.createElement('div');
+      row.className = 'session-row';
+      const info = document.createElement('div');
+      info.className = 'info';
+      const completed = session.status === 'completed';
+      const who = [session.patient, session.name].filter(Boolean).join(' · ');
+      const status = document.createElement('em');
+      status.className = completed ? 'done' : '';
+      status.textContent = completed ? '已出结果' : '未完成';
+      const meta = document.createElement('small');
+      meta.textContent = `${new Date(session.startedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · ${session.preset} · 已答/跳过 ${answered}/${session.questionCount}`;
+      info.append(who || '未填写', status, meta);
+      row.append(info);
+      if (!completed) {
+        const resume = document.createElement('button');
+        resume.type = 'button';
+        resume.className = 'small selected';
+        resume.textContent = '继续作答';
+        resume.onclick = () => { void openSession(session.id, 'resume'); };
+        row.append(resume);
+      }
+      const view = document.createElement('button');
+      view.type = 'button';
+      view.className = 'small';
+      view.textContent = '查看结果';
+      view.onclick = () => { void openSession(session.id, 'results'); };
+      row.append(view);
+      box.append(row);
+    });
+    box.classList.remove('hidden');
+  } catch (error) {
+    console.warn('无法读取最近测试。', error);
+    box.classList.add('hidden');
+  }
 }
 
 function formatDuration(milliseconds) {
@@ -1427,27 +1614,39 @@ async function finish() {
   await Promise.all([...eventWritePromises]);
   const completedAt = new Date().toISOString();
   try {
-    await idbPut('sessions', {
-      id: sessionId,
-      patient,
-      age: patientAge || null,
-      ...patientProfile(),
-      preset: planLabel(),
-      startedAt: new Date(sessionStartedAt).toISOString(),
-      completedAt,
-      status: 'completed',
-      answerCount: answers.length
-    });
+    await updateSessionRecord({ completedAt, status: 'completed', answerCount: answers.length });
   } catch (error) {
     reportStorageFailure(error, '测试完成记录');
   }
   await writeEvent({ type: 'session_completed', completedAt, answerCount: answers.length });
   try { await finalizeSessionLog(); } catch (error) { reportStorageFailure(error, '日志整理'); }
+  showResults();
+}
+
+/* 在原记录上合并，保留 plan / ageBand 等恢复测试要用的字段 */
+async function updateSessionRecord(patch) {
+  const existing = (await idbGet('sessions', sessionId)) || {};
+  await idbPut('sessions', {
+    ...existing,
+    id: sessionId,
+    patient,
+    age: patientAge || null,
+    ...patientProfile(),
+    preset: planLabel(),
+    startedAt: new Date(sessionStartedAt).toISOString(),
+    ...patch
+  });
+}
+
+function showResults() {
+  $('setup').classList.add('hidden');
   $('quiz').classList.add('hidden');
   $('done').classList.remove('hidden');
   updateHomeButton();
+  const open = activeQuestions.filter((question, index) => !answerByQuestion[index]).length;
+  $('doneTitle').textContent = open ? `测试结果（还有 ${open} 题未作答）` : '答题完成';
   const profileText = [patientName, patientGender, patientAge ? `${patientAge} 岁` : '', patientOccupation].filter(Boolean).join('，');
-  $('summary').textContent = `患者 ${patient}${profileText ? `（${profileText}）` : ''}${education ? ` · ${education}` : ''}${lettersFamiliar === 'no' ? ' · 不熟悉英文字母' : ''} · ${new Date().toLocaleString('zh-CN')} · 共 ${activePlan.length} 个部分 / ${activeQuestions.length} 题${ageBand && activeQuestions.some((question) => question.ageBand) ? ` · 名人题${ageBand === 'young' ? '18–30 岁版' : '31–60 岁版'}` : ''}`;
+  $('summary').textContent = `患者 ${patient}${profileText ? `（${profileText}）` : ''}${education ? ` · ${education}` : ''}${lettersFamiliar === 'no' ? ' · 不熟悉英文字母' : ''} · ${new Date(sessionStartedAt).toLocaleString('zh-CN')} · 共 ${activePlan.length} 个部分 / ${activeQuestions.length} 题${ageBand && activeQuestions.some((question) => question.ageBand) ? ` · 名人题${ageBand === 'young' ? '18–30 岁版' : '31–60 岁版'}` : ''}`;
   renderSectionResults();
   renderDashboard();
   $('logPath').textContent = directoryHandle
@@ -1557,4 +1756,6 @@ async function download(extension, type) {
 
 $('csv').onclick = () => download('csv', 'csv');
 $('json').onclick = () => download('json', 'json');
-$('again').onclick = () => window.location.reload();
+$('again').onclick = () => { void startNextPatient(); };
+$('resumeQuiz').onclick = () => { void resumeQuiz(); };
+void renderRecentSessions();
