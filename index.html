@@ -191,6 +191,15 @@
     .session-row .info em { margin-left: 6px; padding: 2px 8px; border-radius: 6px; background: #fff4e5; color: #9a5b00; font-size: 13px; font-style: normal; }
     .session-row .info em.done { background: #edf7f1; color: #087443; }
     .session-row button { width: auto; flex: none; margin: 0; padding: 10px 16px; font-size: 16px; }
+    .task-stage { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: #808080; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    .task-stage canvas { display: block; background: #fff; }
+    .task-abort { position: absolute; top: calc(8px + env(safe-area-inset-top)); left: 8px; width: 44px; height: 44px; margin: 0; padding: 0; border-radius: 50%; background: #ffffff22; color: #ffffff66; font-size: 26px; font-weight: 400; }
+    .task-abort.holding { background: #fff; color: #b42318; transition: background 1.5s linear, color 1.5s linear; }
+    .task-done { margin: 0; color: #087443; text-align: center; font-size: clamp(20px, 2.6vw, 30px); font-weight: 700; }
+    .task-exports { margin-bottom: 12px; }
+    .calib-bar { height: 10px; margin: 10px 0 6px; border-left: 2px solid #102a43; border-right: 2px solid #102a43; background: linear-gradient(#102a43, #102a43) center / 100% 2px no-repeat; }
+    .calib-input { display: flex; flex: none; gap: 8px; align-items: center; }
+    .calib-input input { width: 110px; margin: 0; padding: 10px; font-size: 18px; }
     .dashboard-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
     .dashboard-actions #again { background: #0b6bcb; color: #fff; }
     .dashboard-actions button { margin: 0; }
@@ -250,6 +259,7 @@
       <details class="more">
         <summary>更多设置</summary>
         <div class="save-setting"><div><strong>答题记录保存位置</strong><span id="saveStatus">启动测试前会检查本机持久化存储；可另选自定义文件夹</span></div><button class="small" id="chooseSaveFolder">选择文件夹</button></div>
+        <div class="save-setting calib"><div><strong>认知任务画面尺寸校准</strong><span>用尺子量下面这条线，应为 10 厘米；不是的话填入实测长度后保存</span><div id="calibBar" class="calib-bar"></div><span id="calibStatus"></span></div><div class="calib-input"><input id="calibInput" type="number" step="0.1" min="2" max="30" inputmode="decimal" placeholder="实测厘米"><button class="small" id="calibSave">保存</button></div></div>
         <button class="small" id="openEditor">问卷编辑</button>
         <p class="muted" id="buildTag"></p>
       </details>
@@ -292,6 +302,7 @@
       <div id="sectionResults"></div>
       <div id="dashboard" class="dashboard"></div>
       <div id="logPath" class="log-path"></div>
+      <div id="taskExports" class="dashboard-actions task-exports hidden"></div>
       <div class="dashboard-actions"><button class="small" id="csv">导出结果表（CSV）</button><button class="small" id="json">导出完整备份（JSON）</button><button class="small" id="resumeQuiz">返回继续作答</button><button class="small" id="again">开始下一位患者</button></div>
       <p class="export-note"><strong>结果表（CSV）</strong>：每题一行，含回答、医生标记、对错、跳过代码和用时，用 Numbers 或 Excel 打开即可查看。<br><strong>完整备份（JSON）</strong>：包含每一次点击的原始记录，供数据分析或出问题时恢复用。在“文件”App 里会显示成文本文档，平时不需要打开，保存好即可。</p>
     </section>
@@ -308,6 +319,8 @@
     </section>
   </main>
   <script src="presets.js"></script>
+  <script src="xlsx.js"></script>
+  <script src="tasks.js"></script>
   <script src="app.js"></script>
   <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');</script>
 </body>

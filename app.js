@@ -3,7 +3,7 @@ const defaultPresets = window.scalePadPresets || [];
 const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
-const buildTag = '2026-10-10b';
+const buildTag = '2026-10-11a';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -325,7 +325,10 @@ function sectionStats() {
     if (!hasAnswer(record)) return;
     group.answered += 1;
     if (group.scoring === 'scale') group.score += scaleScore(question, record.answer);
-    else if (group.scoring === 'record') return;
+    else if (group.scoring === 'task') {
+      group.taskScore = record.answer;
+      group.taskRT = record.taskResult?.totalResponseTimeMs;
+    } else if (group.scoring === 'record') return;
     else if (record.mark === '3') group.uncertain += 1;
     else if ((group.scoring === 'auto' || record.mark) && recordCorrect(question, record)) group.correct += 1;
   });
@@ -399,7 +402,7 @@ function clonePreset(preset) {
 }
 
 function isValidPreset(preset) {
-  return preset && typeof preset.name === 'string' && Array.isArray(preset.questions) && preset.questions.every((question) => question && typeof question.text === 'string' && ((question.response === 'text') || (Array.isArray(question.options) && question.options.length >= 2)));
+  return preset && typeof preset.name === 'string' && Array.isArray(preset.questions) && preset.questions.every((question) => question && typeof question.text === 'string' && ((question.response === 'text' || question.response === 'task') || (Array.isArray(question.options) && question.options.length >= 2)));
 }
 
 function savePresets() {
@@ -427,7 +430,9 @@ function bandFromAge() {
   return Number(age) < 31 ? 'young' : 'older';
 }
 
-/* 儿童版问卷单独成组，由医生按需勾选 */
+const groupHeadings = { task: '认知任务（全屏进行，请横放 iPad）', child: '儿童版问卷（按需选择）' };
+
+/* 儿童版问卷、认知任务单独成组，由医生按需勾选 */
 function presetGroup(preset) {
   return defaultPresets.find((item) => item.name === preset.name)?.group || '';
 }
@@ -446,10 +451,10 @@ function renderScaleList() {
   let lastGroup = '';
   presets.forEach((preset) => {
     const group = presetGroup(preset);
-    if (group === 'child' && lastGroup !== 'child') {
+    if (groupHeadings[group] && lastGroup !== group) {
       const heading = document.createElement('p');
       heading.className = 'scale-group';
-      heading.textContent = '儿童版问卷（按需选择）';
+      heading.textContent = groupHeadings[group];
       list.append(heading);
     }
     lastGroup = group;
@@ -511,6 +516,24 @@ $('buildTag').textContent = `版本 ${buildTag}`;
 $('patientAge').oninput = () => { ageBand = bandFromAge() || ageBand; renderScaleList(); };
 
 $('chooseSaveFolder').onclick = chooseSaveFolder;
+
+/* 认知任务按物理尺寸画：用尺子量这条 10 厘米的线，填入实测长度即可校准 */
+function renderCalibration() {
+  const tasks = window.ScalePadTasks;
+  $('calibBar').style.width = `${10 * tasks.pxPerCm()}px`;
+  $('calibStatus').textContent = `数轴按 ${tasks.LINE_CM} 厘米绘制（与原程序在 27 寸显示器上一致）`;
+}
+$('calibSave').onclick = () => {
+  const measured = Number($('calibInput').value);
+  if (!(measured > 2 && measured < 30)) {
+    window.alert('请填写这条线实际量得的长度（厘米），例如 9.6。');
+    return;
+  }
+  window.ScalePadTasks.setPxPerCm(window.ScalePadTasks.pxPerCm() * 10 / measured);
+  $('calibInput').value = '';
+  renderCalibration();
+};
+renderCalibration();
 setupHomeButton();
 $('prevQuestion').onclick = () => navigateTo(nextOpenIndex(questionIndex - 1, -1));
 $('nextQuestion').onclick = () => navigateTo(nextOpenIndex(questionIndex + 1));
@@ -750,7 +773,7 @@ function collectEditorDraft() {
       ...(base.audioText === base.text ? { audioText: text } : {}),
       options: [...row.querySelectorAll('.option-input')].map((input) => input.value.trim() || '未填写选项')
     };
-  }).filter((question) => question.response === 'text' || question.options.length >= 2);
+  }).filter((question) => question.response === 'text' || question.response === 'task' || question.options.length >= 2);
   return {
     name: $('editorName').value.trim() || '未命名问卷',
     questions: questions.length ? questions : [{ text: '请输入题目', options: ['是', '否'] }]
@@ -838,7 +861,7 @@ function renderEditorForm() {
       }
       row.append(optionRow);
     });
-    if (question.response === 'text') {
+    if (question.response === 'text' || question.response === 'task') {
       questionEditor.append(row);
       return;
     }
@@ -907,6 +930,11 @@ function renderQuestion() {
   $('choices').classList.toggle('long-options', options.some((option) => option.length > 5));
   $('choices').dataset.count = options.length;
 
+  if (question.response === 'task') {
+    renderTaskQuestion(question, savedAnswer);
+    return;
+  }
+
   if (question.response === 'text') {
     const input = document.createElement('textarea');
     input.className = 'free-response-input';
@@ -952,6 +980,68 @@ function renderQuestion() {
     $('choices').append(button);
   });
   autoSpeak(question);
+}
+
+/* 认知任务：医生讲完指导语后点“开始”进入全屏任务，完成后整份结果记为本题答案 */
+function renderTaskQuestion(question, savedAnswer) {
+  $('choices').classList.add('free-response');
+  const finished = hasAnswer(savedAnswer) && savedAnswer.taskResult;
+  if (finished) {
+    const note = document.createElement('p');
+    note.className = 'task-done';
+    note.textContent = `已完成：准确性评分 ${savedAnswer.answer}，总反应时间 ${Math.round(savedAnswer.taskResult.totalResponseTimeMs)} 毫秒`;
+    $('choices').append(note);
+  }
+  const start = document.createElement('button');
+  start.type = 'button';
+  start.className = 'choice';
+  start.textContent = finished ? '重新做一遍' : '开始';
+  start.onclick = () => { void runTaskQuestion(question); };
+  $('choices').append(start);
+}
+
+async function runTaskQuestion(question) {
+  const index = questionIndex;
+  const tasks = window.ScalePadTasks;
+  const fit = tasks.layout();
+  if (fit.scaled && !window.confirm(`当前屏幕放不下原尺寸（数轴应为 ${tasks.LINE_CM} 厘米），将缩小到 ${fit.lineCm.toFixed(1)} 厘米。\n\n建议先把 iPad 横过来。仍要继续吗？`)) return;
+  stopSpeaking();
+  cancelPendingAnswer();
+  setQuizStatus('');
+  const fields = { ...questionFields(question, index), task: question.task };
+  const presentedAt = new Date().toISOString();
+  void writeEvent({ type: 'task_started', ...fields });
+  let result;
+  try {
+    result = await tasks.run(question.task, {
+      onTrial: (trial, trialIndex) => { void writeEvent({ type: 'task_trial', ...fields, trialIndex, ...trial }); }
+    });
+  } catch (error) {
+    const reason = error?.message || String(error);
+    void writeEvent({ type: 'task_aborted', ...fields, reason });
+    renderQuestion();
+    setQuizStatus(reason === 'aborted' ? '任务已中止，本题没有记录结果，可重新开始或跳过。' : `任务出错：${reason}`);
+    return;
+  }
+  const record = {
+    ...questionFields(question, index),
+    index,
+    question: question.text,
+    answer: `${result.accuracy.toFixed(2)}/100`,
+    taskResult: result,
+    presentedAt,
+    time: new Date().toISOString()
+  };
+  if (!(await writeEvent({ type: 'answer_committed', ...record }))) {
+    renderQuestion();
+    setQuizStatus('任务结果未能写入本机记录，请检查存储后重做本题。');
+    return;
+  }
+  answerByQuestion[index] = record;
+  rebuildAnswers();
+  questionIndex = nextOpenIndex(index + 1);
+  if (questionIndex < activeQuestions.length) renderQuestion();
+  else await finish();
 }
 
 function renderDoctorScript(question) {
@@ -1575,13 +1665,16 @@ function renderSectionResults() {
     } else if (group.scoring === 'record') {
       result = `已答 ${group.answered}/${group.total}`;
       rate = '仅记录回答';
+    } else if (group.scoring === 'task') {
+      result = group.answered ? `准确性评分 ${group.taskScore}` : (group.skipped ? '已跳过' : '未完成');
+      rate = group.answered ? `总反应时间 ${Math.round(group.taskRT)} 毫秒` : '—';
     } else {
       result = group.answered ? `${group.correct}/${judged} (${group.total})` : `${group.skipped === group.total ? '全部跳过' : '未作答'} (${group.total})`;
       rate = judged ? `${Math.round((group.correct / judged) * 100)}%` : '—';
     }
     return `<tr><td>${escapeHtml(group.code)} · ${escapeHtml(group.name)}<small>${escapeHtml(group.source)}</small></td><td class="result">${escapeHtml(result)}</td><td class="rate">${escapeHtml(rate)}</td><td class="skip">${skipNote}</td></tr>`;
   });
-  const scored = stats.filter((group) => group.scoring !== 'scale' && group.scoring !== 'record');
+  const scored = stats.filter((group) => !['scale', 'record', 'task'].includes(group.scoring));
   const totals = scored.reduce((sum, group) => ({
     correct: sum.correct + group.correct,
     answered: sum.answered + group.answered - group.uncertain,
@@ -1688,6 +1781,7 @@ function showResults() {
   $('summary').textContent = `患者 ${patient}${profileText ? `（${profileText}）` : ''}${education ? ` · ${education}` : ''}${lettersFamiliar === 'no' ? ' · 不熟悉英文字母' : ''} · ${new Date(sessionStartedAt).toLocaleString('zh-CN')} · 共 ${activePlan.length} 个部分 / ${activeQuestions.length} 题${ageBand && activeQuestions.some((question) => question.ageBand) ? ` · 名人题${ageBand === 'young' ? '18–30 岁版' : '31–60 岁版'}` : ''}`;
   renderSectionResults();
   renderDashboard();
+  renderTaskExports();
   $('logPath').textContent = directoryHandle
     ? `实时日志路径：${directoryHandle.name}/${directoryLogFileName}`
     : `实时日志路径：本机离线存储 / ScalePad-logs / ${sessionId}（完成后可导出到“下载”或自定义位置）`;
@@ -1725,7 +1819,7 @@ async function download(extension, type) {
     if (!question) return ['', '', ''];
     if (answer.skipped) return ['', '', question.correct ?? ''];
     if (question.scoring === 'scale') return ['', String(scaleScore(question, answer.answer)), ''];
-    if (question.scoring === 'record') return ['', '', ''];
+    if (question.scoring === 'record' || question.scoring === 'task') return ['', '', ''];
     if (answer.mark === '3' || (question.scoring === 'manual' && !answer.mark)) return ['', '', question.correct ?? ''];
     return [recordCorrect(question, answer) ? '1' : '0', '', question.correct ?? ''];
   };
@@ -1744,6 +1838,11 @@ async function download(extension, type) {
       + statRows.join('\n');
   const filename = `${safeFilePart(patient)}_${sessionId || Date.now()}.${extension}`;
   const mime = type === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8';
+  await saveFile(filename, content, mime, type === 'json' ? 'JSON 文件' : 'CSV 文件', extension);
+}
+
+/* 依次尝试：自定义文件夹 → 系统保存面板 → 分享面板（iPad）→ 浏览器下载 */
+async function saveFile(filename, content, mime, description, extension) {
   const file = new File([content], filename, { type: mime });
 
   if (directoryHandle) {
@@ -1764,7 +1863,7 @@ async function download(extension, type) {
     try {
       const target = await window.showSaveFilePicker({
         suggestedName: filename,
-        types: [{ description: type === 'json' ? 'JSON 文件' : 'CSV 文件', accept: { [mime.split(';')[0]]: [`.${extension}`] } }]
+        types: [{ description, accept: { [mime.split(';')[0]]: [`.${extension}`] } }]
       });
       const writable = await target.createWritable();
       await writable.write(content);
@@ -1791,6 +1890,26 @@ async function download(extension, type) {
   link.click();
   URL.revokeObjectURL(link.href);
   $('logPath').textContent = `已请求下载：${filename}。请在 iPad“文件”App 的“下载”中确认文件。`;
+}
+
+/* 认知任务按原程序格式导出 xlsx：一个 sheet，名为完成时间；Mac 上用 tools/merge_numerical_xlsx.py 追加进汇总表 */
+function renderTaskExports() {
+  const box = $('taskExports');
+  box.innerHTML = '';
+  answers.filter((record) => record.taskResult && !record.skipped).forEach((record) => {
+    const result = record.taskResult;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'small';
+    button.textContent = `导出${result.title}（xlsx）`;
+    button.onclick = () => {
+      const prefix = result.workbookName.replace('_results.xlsx', '');
+      const filename = `${prefix}_${safeFilePart(patient)}_${result.sheetName}.xlsx`;
+      void saveFile(filename, window.ScalePadTasks.workbookBlob(result), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Excel 文件', 'xlsx');
+    };
+    box.append(button);
+  });
+  box.classList.toggle('hidden', !box.children.length);
 }
 
 $('csv').onclick = () => download('csv', 'csv');
