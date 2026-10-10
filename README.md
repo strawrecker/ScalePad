@@ -2,7 +2,17 @@
 
 在 iPad 上离线运行的评估问卷 PWA。医生和患者共用一台 iPad：患者点选答案，需要口头作答的题由医生用数字按钮标记对错。每一次点击都实时写入 iPad 本机存储，结束后可导出 CSV / JSON。
 
-安装与更新步骤见 [在iPad上安装.md](在iPad上安装.md)。
+安装与更新步骤见 [在iPad上安装.md](在iPad上安装.md)。也可以完全不用 iPad，直接在电脑上做，见下文「在电脑上使用」。
+
+## 在电脑上使用
+
+1. 双击 `start-scalepad-desktop.command`（第一次若被拦截：右键 → 打开）。会弹出一个终端窗口并自动用 Chrome 打开 `http://127.0.0.1:47815/`（断网也能用，不需要 IP 或证书）。**测试期间别关这个终端窗口。**
+2. 之后的流程和 iPad 完全一样。认知任务用鼠标/键盘操作，与原 PsychoPy 程序一致；第一次请在「更多设置 > 认知任务画面尺寸校准」量一下 10 厘米的线（每台显示器各校准一次）。
+3. 结果页多一个「追加进汇总表」按钮：直接把这次的数轴/点数结果追加进 `~/Desktop/numerical cognition/` 的汇总表（可改成某位患者的文件夹，会记住上次填的），不用再手动跑合并脚本。原件另存一份在 `numerical cognition/ScalePad导出/`。需要 openpyxl（`pip3 install openpyxl`）。
+
+注意：
+- 电脑上的记录存在 Chrome 里，和 iPad 上的互不相通。**地址必须一直是 `http://127.0.0.1:47815/`**，换端口或改用 `localhost` 都等于换了一个网站，之前的「最近测试」会看不到。
+- 清除 Chrome 的浏览数据会删掉本机记录，每次测完照常导出 CSV / JSON。可在「更多设置 > 选择文件夹」绑定一个文件夹，答题时逐题写入（Chrome 支持）。
 
 ## 内置问卷
 
@@ -88,7 +98,8 @@ BIP 各卷的名人题分 18–30 岁、31–60 岁两版（各 10 题），按�
 | `sw.js` | Service Worker，离线缓存（代码先联网、断网用缓存；图片缓存优先） |
 | `assets/` | 题目图片素材 |
 | `check-assets.js` | 校验题库引用的图片都存在且都在 `sw.js` 预缓存清单里 |
-| `start-scalepad-mac.sh` / `start-scalepad.ps1` | 在电脑上启动安装用的 HTTPS 服务 |
+| `start-scalepad-desktop.command` / `serve_local.py` | 直接在这台电脑上使用（本机网页服务 + 一键追加进汇总表） |
+| `start-scalepad-mac.sh` / `start-scalepad.ps1` | 在电脑上启动给 iPad 安装用的 HTTPS 服务 |
 | `serve_https.py` | HTTPS 静态服务 |
 
 ## 修改后发布新版本

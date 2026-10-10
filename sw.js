@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bip-evaluation-v16';
+const CACHE_NAME = 'bip-evaluation-v17';
 const CORE_FILES = ['./', './index.html', './app.js', './presets.js', './xlsx.js', './tasks.js', './manifest.json'];
 const numbered = (folder, prefix, count, ext = 'png') => Array.from({ length: count }, (_, index) => `./${folder}/${prefix}${String(index + 1).padStart(2, '0')}.${ext}`);
 const sequence = (folder, count) => Array.from({ length: count }, (_, index) => {
@@ -39,6 +39,7 @@ self.addEventListener('activate', (event) => {
    图片素材量大且不会变，继续走缓存优先。 */
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  if (new URL(event.request.url).pathname.startsWith('/api/')) return;
   if (isCore(event.request)) {
     event.respondWith(
       fetch(event.request).then((response) => {

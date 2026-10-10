@@ -3,7 +3,7 @@ const defaultPresets = window.scalePadPresets || [];
 const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
-const buildTag = '2026-10-11a';
+const buildTag = '2026-10-11b';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -430,7 +430,7 @@ function bandFromAge() {
   return Number(age) < 31 ? 'young' : 'older';
 }
 
-const groupHeadings = { task: '认知任务（全屏进行，请横放 iPad）', child: '儿童版问卷（按需选择）' };
+const groupHeadings = { task: '认知任务（全屏进行；用 iPad 时请横放）', child: '儿童版问卷（按需选择）' };
 
 /* 儿童版问卷、认知任务单独成组，由医生按需勾选 */
 function presetGroup(preset) {
@@ -1004,7 +1004,7 @@ async function runTaskQuestion(question) {
   const index = questionIndex;
   const tasks = window.ScalePadTasks;
   const fit = tasks.layout();
-  if (fit.scaled && !window.confirm(`当前屏幕放不下原尺寸（数轴应为 ${tasks.LINE_CM} 厘米），将缩小到 ${fit.lineCm.toFixed(1)} 厘米。\n\n建议先把 iPad 横过来。仍要继续吗？`)) return;
+  if (fit.scaled && !window.confirm(`当前屏幕放不下原尺寸（数轴应为 ${tasks.LINE_CM} 厘米），将缩小到 ${fit.lineCm.toFixed(1)} 厘米。\n\n建议把 iPad 横过来，或在电脑上把浏览器窗口最大化。仍要继续吗？`)) return;
   stopSpeaking();
   cancelPendingAnswer();
   setQuizStatus('');
@@ -1889,7 +1889,32 @@ async function saveFile(filename, content, mime, description, extension) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(link.href);
-  $('logPath').textContent = `已请求下载：${filename}。请在 iPad“文件”App 的“下载”中确认文件。`;
+  $('logPath').textContent = `已请求下载：${filename}。请在“下载”中确认文件（iPad 在“文件”App 里）。`;
+}
+
+/* 用 start-scalepad-desktop.command 在电脑上运行时，serve_local.py 提供 /api/merge，
+ * 可一键把任务结果追加进 numerical cognition 汇总表；iPad 上没有这个接口，只显示导出按钮。 */
+const mergeDestKey = 'scalepad_merge_dest_v1';
+let desktopHelper = null;
+fetch('/api/desktop', { cache: 'no-store' })
+  .then((response) => (response.ok ? response.json() : null))
+  .then((info) => { if (info?.ok) { desktopHelper = info; renderTaskExports(); } })
+  .catch(() => {});
+
+async function mergeTaskResult(filename, blob) {
+  let dest = desktopHelper.dest;
+  try { dest = localStorage.getItem(mergeDestKey) || dest; } catch (error) { /* 忽略 */ }
+  dest = window.prompt('追加到哪个文件夹？（可改成某位患者的文件夹）', dest);
+  if (dest === null) return;
+  try { localStorage.setItem(mergeDestKey, dest.trim()); } catch (error) { /* 忽略 */ }
+  try {
+    const response = await fetch(`/api/merge?name=${encodeURIComponent(filename)}&dest=${encodeURIComponent(dest.trim())}`, { method: 'POST', body: blob });
+    const result = await response.json();
+    $('saveStatus').textContent = result.message;
+    window.alert(result.ok ? `已追加：${result.message}` : `追加失败：${result.message}`);
+  } catch (error) {
+    window.alert(`追加失败：连不上本机服务（start-scalepad-desktop.command 的窗口是否已关闭？）\n${error.message || error}`);
+  }
 }
 
 /* 认知任务按原程序格式导出 xlsx：一个 sheet，名为完成时间；Mac 上用 tools/merge_numerical_xlsx.py 追加进汇总表 */
@@ -1898,14 +1923,23 @@ function renderTaskExports() {
   box.innerHTML = '';
   answers.filter((record) => record.taskResult && !record.skipped).forEach((record) => {
     const result = record.taskResult;
+    const prefix = result.workbookName.replace('_results.xlsx', '');
+    const filename = `${prefix}_${safeFilePart(patient)}_${result.sheetName}.xlsx`;
+    const workbook = () => window.ScalePadTasks.workbookBlob(result);
+    if (desktopHelper) {
+      const merge = document.createElement('button');
+      merge.type = 'button';
+      merge.className = 'small';
+      merge.textContent = `${result.title}：追加进汇总表`;
+      merge.onclick = () => { void mergeTaskResult(filename, workbook()); };
+      box.append(merge);
+    }
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'small';
     button.textContent = `导出${result.title}（xlsx）`;
     button.onclick = () => {
-      const prefix = result.workbookName.replace('_results.xlsx', '');
-      const filename = `${prefix}_${safeFilePart(patient)}_${result.sheetName}.xlsx`;
-      void saveFile(filename, window.ScalePadTasks.workbookBlob(result), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Excel 文件', 'xlsx');
+      void saveFile(filename, workbook(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Excel 文件', 'xlsx');
     };
     box.append(button);
   });
