@@ -161,7 +161,13 @@
     #questionMedia .stimulus-start { width: auto; padding: 22px 40px; font-size: clamp(24px, 3.4vw, 40px); }
     .setup-note { margin: 12px 0 0; padding: 10px 14px; border-radius: 10px; background: #f4f7fb; color: #486581; font-size: 16px; }
     .mark-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    #questionMedia img.fade-in { opacity: 0; }
+    #questionMedia img.fade-in.shown { animation: color-rise 1.2s ease-out both; }
+    @keyframes color-rise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
     .mark-row button { margin: 0; }
+    .bulk-fill { flex: none; display: flex; align-items: center; gap: 10px; margin-top: 12px; color: #627d98; font-size: 17px; }
+    .bulk-fill span { flex: none; }
+    .bulk-fill button { flex: 1; margin: 0; padding: 12px 6px; }
     .export-note { margin: 12px 0 0; color: #627d98; font-size: 15px; line-height: 1.5; }
     .skip-tag { flex: none; margin: 6px 0 0; padding: 8px; border-radius: 8px; background: #fff4e5; color: #9a5b00; text-align: center; font-size: 17px; font-weight: 700; }
     .skip-scope { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
@@ -277,6 +283,7 @@
       <div class="question-wrap" id="questionWrap"><div class="q" id="question"></div><button class="icon-button audio-button" id="speakQuestion" type="button" aria-label="朗读题目" title="朗读题目">🔊</button></div>
       <div id="questionMedia"></div>
       <div id="choices"></div>
+      <div class="bulk-fill hidden" id="bulkFill"></div>
       <p class="skip-tag hidden" id="skipTag"></p>
       <p class="researcher-script hidden" id="researcherScript"></p>
       <p class="quiz-status hidden" id="quizStatus" aria-live="polite"></p>

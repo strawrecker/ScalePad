@@ -3,7 +3,7 @@ const defaultPresets = window.scalePadPresets || [];
 const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
-const buildTag = '2026-10-11b';
+const buildTag = '2026-10-12a';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -894,7 +894,7 @@ function renderQuestion() {
   beginQuestionTelemetry(question);
   if (sessionId && storageReady) void writeEvent({ type: 'question_presented', ...questionFields(question), presentedAt: currentQuestionTelemetry.presentedAt });
   /* 纯听题：患者看不到题目，屏幕只提示交给医生，由医生读题 */
-  const displayText = audioOnly ? '请把平板交给医生' : (question.display ?? question.text);
+  const displayText = audioOnly ? '请把设备交给医生' : (question.display ?? question.text);
   $('sectionName').textContent = question.section || planLabel();
   $('sectionMeta').textContent = `${partCode(question.planIndex)} 部分 · ${question.planPreset}`;
   $('partsButton').textContent = `${partCode(question.planIndex)} 部分 ▾`;
@@ -905,7 +905,7 @@ function renderQuestion() {
   $('questionWrap').classList.toggle('empty-question', !displayText);
   $('questionWrap').classList.toggle('handoff', audioOnly);
   $('speakQuestion').classList.toggle('hidden', !voiceEnabled);
-  /* 纯听题的题目默认折叠，医生拿到平板后点开照着读。
+  /* 纯听题的题目默认折叠，医生拿到设备后点开照着读。
    * 连续的纯听题保持展开，离开这一段后重新折叠。 */
   if (!audioOnly) doctorScriptOpen = false;
   renderDoctorScript(question);
@@ -922,6 +922,11 @@ function renderQuestion() {
     const image = document.createElement('img');
     image.src = question.image;
     image.alt = '题目材料';
+    /* 色块不直接闪出来：图片加载好后再慢慢浮现 */
+    if (question.image.includes('assets/colors/')) {
+      image.className = 'fade-in';
+      image.decode().catch(() => {}).then(() => { image.classList.add('shown'); });
+    }
     $('questionMedia').append(image);
   }
   $('choices').innerHTML = '';
@@ -929,6 +934,7 @@ function renderQuestion() {
   $('choices').classList.toggle('many', question.response !== 'text' && options.length > 2);
   $('choices').classList.toggle('long-options', options.some((option) => option.length > 5));
   $('choices').dataset.count = options.length;
+  renderBulkFill(question);
 
   if (question.response === 'task') {
     renderTaskQuestion(question, savedAnswer);
@@ -1173,6 +1179,73 @@ async function commitPendingAnswer() {
   pendingAnswer = null;
   currentQuestionTelemetry = null;
   return true;
+}
+
+/* 按场景分组的量表（VVIQ 每 4 题一个场景）：每组第一题下方多一排“本组全选同一分”的快捷按钮 */
+function bulkGroupIndexes(index) {
+  const question = activeQuestions[index];
+  const size = question.scoring === 'scale' && /^VVIQ/.test(question.section || '') ? 4 : 0;
+  if (!size) return [];
+  let first = index;
+  while (first > 0 && activeQuestions[first - 1].planIndex === question.planIndex) first -= 1;
+  if ((index - first) % size) return [];
+  const indexes = [];
+  for (let item = index; item < index + size && activeQuestions[item]?.planIndex === question.planIndex; item += 1) indexes.push(item);
+  return indexes;
+}
+
+function renderBulkFill(question) {
+  const box = $('bulkFill');
+  const indexes = bulkGroupIndexes(questionIndex);
+  box.innerHTML = '';
+  box.classList.toggle('hidden', indexes.length < 2);
+  if (indexes.length < 2) return;
+  const label = document.createElement('span');
+  label.textContent = `本组 ${indexes.length} 题全选同一分：`;
+  box.append(label);
+  question.options.forEach((option, position) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'small';
+    button.textContent = `全 ${question.values?.[position] ?? option}`;
+    button.title = `本组 ${indexes.length} 题全部选“${option}”`;
+    button.onclick = () => { void fillGroup(indexes, position); };
+    box.append(button);
+  });
+}
+
+/* 一次写入整组答案（按选项位置取各题自己的选项文字），然后跳到下一组 */
+async function fillGroup(indexes, position) {
+  cancelPendingAnswer();
+  const time = new Date().toISOString();
+  const telemetry = telemetrySnapshot();
+  const results = await Promise.all(indexes.map((index) => {
+    const question = activeQuestions[index];
+    const record = {
+      ...questionFields(question, index),
+      ...(index === questionIndex ? telemetry : {}),
+      index,
+      answer: question.options[position],
+      bulkFilled: true,
+      selectedAt: time,
+      time
+    };
+    return writeEvent({ type: 'answer_committed', ...record }).then((saved) => {
+      if (saved) answerByQuestion[index] = record;
+      return saved;
+    });
+  }));
+  rebuildAnswers();
+  if (!results.every(Boolean)) {
+    setQuizStatus('本组答案未能写入本机记录，已暂停。请检查存储后重试。');
+    renderQuestion();
+    return;
+  }
+  setQuizStatus('');
+  currentQuestionTelemetry = null;
+  questionIndex = nextOpenIndex(indexes[indexes.length - 1] + 1);
+  if (questionIndex < activeQuestions.length) renderQuestion();
+  else await finish();
 }
 
 function rebuildAnswers() {
