@@ -3,7 +3,8 @@ const defaultPresets = window.scalePadPresets || [];
 const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
-const buildTag = '2026-10-12a';
+const adaptiveStorageKey = 'scalepad_adaptive_v1';
+const buildTag = '2026-10-17a';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -14,6 +15,7 @@ let ageBand = '';
 let epilepsy = '';
 let education = '';
 let lettersFamiliar = '';
+let adaptive = localStorage.getItem(adaptiveStorageKey) === 'on';
 let skipScope = 'one';
 let sequenceTimer = null;
 let doctorScriptOpen = false;
@@ -294,11 +296,12 @@ function scaleScore(question, answer) {
 }
 
 function hasAnswer(record) {
-  return Boolean(record) && !record.skipped && (String(record.answer ?? '').trim() !== '' || Boolean(record.mark));
+  return Boolean(record) && !record.skipped && (String(record.answer ?? '').trim() !== '' || Boolean(record.mark) || Boolean(record.adaptiveCredited));
 }
 
-/* 有医生标记时以标记为准，否则按标准答案比对 */
+/* 自适应计为正确的题算对；有医生标记时以标记为准，否则按标准答案比对 */
 function recordCorrect(question, record) {
+  if (record.adaptiveCredited) return true;
   if (record.mark) return record.mark === '1';
   return isCorrect(question, record.answer);
 }
@@ -310,7 +313,7 @@ function sectionStats() {
   activeQuestions.forEach((question, index) => {
     const key = question.planIndex ?? (question.section || '未分区');
     if (!groups.has(key)) {
-      groups.set(key, { code: partCode(order.length), name: question.section || '未分区', source: question.planPreset || '', scoring: question.scoring || 'auto', total: 0, answered: 0, correct: 0, uncertain: 0, score: 0, maxScore: 0, skipped: 0, skipCodes: {} });
+      groups.set(key, { code: partCode(order.length), name: question.section || '未分区', source: question.planPreset || '', scoring: question.scoring || 'auto', total: 0, answered: 0, correct: 0, credited: 0, uncertain: 0, score: 0, maxScore: 0, skipped: 0, skipCodes: {} });
       order.push(key);
     }
     const group = groups.get(key);
@@ -329,6 +332,7 @@ function sectionStats() {
       group.taskScore = record.answer;
       group.taskRT = record.taskResult?.totalResponseTimeMs;
     } else if (group.scoring === 'record') return;
+    else if (record.adaptiveCredited) { group.correct += 1; group.credited += 1; }
     else if (record.mark === '3') group.uncertain += 1;
     else if ((group.scoring === 'auto' || record.mark) && recordCorrect(question, record)) group.correct += 1;
   });
@@ -380,7 +384,7 @@ function loadPresets() {
       const merged = defaultPresets.map((preset) => {
         const custom = savedByName.get(preset.name);
         savedByName.delete(preset.name);
-        return custom || clonePreset(preset);
+        return custom ? withDefaultHard(custom, preset) : clonePreset(preset);
       });
       return [...merged, ...savedByName.values()];
     }
@@ -388,6 +392,15 @@ function loadPresets() {
     console.warn('无法读取本地问卷，将使用默认问卷。', error);
   }
   return defaultPresets.map(clonePreset);
+}
+
+/* 旧版本保存的问卷没有“难题”标记：按分区 + 题干从默认题库补上（医生在编辑器里取消过的保持取消） */
+function withDefaultHard(custom, preset) {
+  const hardKeys = new Set(preset.questions.filter((question) => question.hard).map((question) => `${question.section}\n${question.text}`));
+  return {
+    ...custom,
+    questions: custom.questions.map((question) => ('hard' in question || !hardKeys.has(`${question.section}\n${question.text}`) ? question : { ...question, hard: true }))
+  };
 }
 
 function clonePreset(preset) {
@@ -486,6 +499,8 @@ function renderScaleList() {
   $('bandOlder').classList.toggle('selected', ageBand === 'older');
   document.querySelectorAll('[data-education]').forEach((button) => button.classList.toggle('selected', button.dataset.education === education));
   document.querySelectorAll('[data-gender]').forEach((button) => button.classList.toggle('selected', button.dataset.gender === patientGender));
+  $('adaptiveOff').classList.toggle('selected', !adaptive);
+  $('adaptiveOn').classList.toggle('selected', adaptive);
   $('lettersYes').classList.toggle('selected', lettersFamiliar === 'yes');
   $('lettersNo').classList.toggle('selected', lettersFamiliar === 'no');
   $('lettersNote').textContent = lettersFamiliar === 'no'
@@ -496,6 +511,13 @@ function renderScaleList() {
 $('bandYoung').onclick = () => { ageBand = 'young'; renderScaleList(); };
 $('bandOlder').onclick = () => { ageBand = 'older'; renderScaleList(); };
 $('epilepsyNo').onclick = () => { epilepsy = 'no'; renderScaleList(); };
+const setAdaptive = (on) => {
+  adaptive = on;
+  try { localStorage.setItem(adaptiveStorageKey, on ? 'on' : 'off'); } catch (error) { /* 只是记住偏好 */ }
+  renderScaleList();
+};
+$('adaptiveOff').onclick = () => setAdaptive(false);
+$('adaptiveOn').onclick = () => setAdaptive(true);
 document.querySelectorAll('[data-gender]').forEach((button) => {
   button.onclick = () => { patientGender = button.dataset.gender; renderScaleList(); };
 });
@@ -591,9 +613,9 @@ async function chooseSaveFolder() {
 
 /* 选中顺序 = 作答顺序；板块（planIndex）用于分区统计和“跳过本部分”。
  * 恢复旧测试时用同样的规则重建题目，保证题号与记录对得上。 */
-function buildPlan(chosen, band) {
+function buildPlan(chosen, band, adaptiveMode = false) {
   const steps = [];
-  const questions = [];
+  let questions = [];
   chosen.forEach((preset) => {
     preset.questions
       .filter((question) => !question.ageBand || question.ageBand === band)
@@ -606,7 +628,58 @@ function buildPlan(chosen, band) {
         questions.push({ ...question, planIndex: steps.length - 1, planPreset: preset.name });
       });
   });
+  if (adaptiveMode) {
+    /* 自适应：可自适应的部分把难题排到前面（各自保持原顺序） */
+    const adaptiveParts = new Set(steps.map((step, index) => index).filter((index) => isAdaptivePart(questions.filter((question) => question.planIndex === index))));
+    questions = steps.flatMap((step, index) => {
+      const part = questions.filter((question) => question.planIndex === index);
+      if (!adaptiveParts.has(index)) return part;
+      step.adaptive = true;
+      return [...part.filter((question) => question.hard), ...part.filter((question) => !question.hard)];
+    });
+  }
   return { plan: steps, questions };
+}
+
+/* 有对错的部分，且既有难题又有其他题，才走自适应 */
+function isAdaptivePart(part) {
+  return part.length > 0
+    && part.every((question) => question.scoring === 'auto' || question.scoring === 'manual')
+    && part.some((question) => question.hard) && part.some((question) => !question.hard);
+}
+
+/* 本部分的难题都已作答且全对（标记 3 不确定、跳过都不算对）→ 其余未作答的题记为正确；
+ * 之后若改了某道难题导致不再全对，撤销这些自动计分，题目重新变成待答。 */
+async function applyAdaptive(planIndex) {
+  if (!activePlan[planIndex]?.adaptive) return true;
+  const indexes = activeQuestions.map((question, index) => index).filter((index) => activeQuestions[index].planIndex === planIndex);
+  const hard = indexes.filter((index) => activeQuestions[index].hard);
+  const rest = indexes.filter((index) => !activeQuestions[index].hard);
+  const done = hard.every((index) => answerByQuestion[index]);
+  const passed = done && hard.every((index) => {
+    const record = answerByQuestion[index];
+    return hasAnswer(record) && record.mark !== '3' && recordCorrect(activeQuestions[index], record);
+  });
+  const time = new Date().toISOString();
+  const writes = [];
+  rest.forEach((index) => {
+    const record = answerByQuestion[index];
+    if (passed && !record) {
+      const credited = { ...questionFields(activeQuestions[index], index), index, answer: '', adaptiveCredited: true, time };
+      writes.push(writeEvent({ type: 'adaptive_credited', ...credited }).then((saved) => {
+        if (saved) answerByQuestion[index] = credited;
+        return saved;
+      }));
+    } else if (!passed && record?.adaptiveCredited) {
+      writes.push(writeEvent({ type: 'adaptive_revoked', ...questionFields(activeQuestions[index], index), index, time }).then((saved) => {
+        if (saved) delete answerByQuestion[index];
+        return saved;
+      }));
+    }
+  });
+  const results = await Promise.all(writes);
+  rebuildAnswers();
+  return results.every(Boolean);
 }
 
 async function startSession() {
@@ -644,7 +717,7 @@ async function startSession() {
     unlock();
     return;
   }
-  ({ plan: activePlan, questions: activeQuestions } = buildPlan(chosen, ageBand));
+  ({ plan: activePlan, questions: activeQuestions } = buildPlan(chosen, ageBand, adaptive));
   if (!activeQuestions.length) {
     window.alert('所选量表没有可作答的题目。');
     unlock();
@@ -671,11 +744,12 @@ async function startSession() {
       epilepsy,
       education,
       lettersFamiliar,
+      adaptive,
       questionCount: activeQuestions.length,
       startedAt: new Date(sessionStartedAt).toISOString(),
       status: 'active'
     });
-    if (!(await writeEvent({ type: 'session_started', patient, age: patientAge || null, ...patientProfile(), preset: planLabel(), ageBand, epilepsy, education, lettersFamiliar, questionCount: activeQuestions.length }))) throw new Error('无法写入测试开始记录');
+    if (!(await writeEvent({ type: 'session_started', patient, age: patientAge || null, ...patientProfile(), preset: planLabel(), ageBand, epilepsy, education, lettersFamiliar, adaptive, questionCount: activeQuestions.length }))) throw new Error('无法写入测试开始记录');
   } catch (error) {
     reportStorageFailure(error, '测试开始记录');
     unlock();
@@ -764,8 +838,10 @@ function collectEditorDraft() {
   const questions = [...$('questionEditor').querySelectorAll('.question-edit')].map((row) => {
     const base = source[Number(row.dataset.index)] || {};
     const text = row.querySelector('.question-text').value.trim() || '未填写题目';
+    const hardBox = row.querySelector('.hard-input');
     return {
       ...base,
+      ...(hardBox ? { hard: hardBox.checked } : {}),
       response: base.response || 'choice',
       text,
       /* 题干改了就同步屏幕文字与朗读文字，除非它们本来就是另外写的 */
@@ -831,7 +907,19 @@ function renderEditorForm() {
       presets[editingIndex].questions.splice(questionIndex, 1);
       renderEditorForm();
     };
-    head.append(title, remove);
+    head.append(title);
+    /* 有对错的题可勾选“难题”：自适应模式下先做难题 */
+    if (question.scoring === 'auto' || question.scoring === 'manual' || !question.scoring) {
+      const hardLabel = document.createElement('label');
+      hardLabel.className = 'hard-toggle';
+      const hardBox = document.createElement('input');
+      hardBox.type = 'checkbox';
+      hardBox.className = 'hard-input';
+      hardBox.checked = Boolean(question.hard);
+      hardLabel.append(hardBox, '难题');
+      head.append(hardLabel);
+    }
+    head.append(remove);
     const text = document.createElement(question.response === 'text' ? 'textarea' : 'input');
     text.className = 'question-text';
     text.value = question.text;
@@ -910,8 +998,10 @@ function renderQuestion() {
   if (!audioOnly) doctorScriptOpen = false;
   renderDoctorScript(question);
   const skipped = savedAnswer?.skipped;
-  $('skipTag').textContent = skipped ? `已跳过 · ${savedAnswer.skipCode} ${savedAnswer.skipReason}（直接作答可覆盖）` : '';
-  $('skipTag').classList.toggle('hidden', !skipped);
+  const credited = savedAnswer?.adaptiveCredited;
+  $('skipTag').textContent = skipped ? `已跳过 · ${savedAnswer.skipCode} ${savedAnswer.skipReason}（直接作答可覆盖）`
+    : credited ? '本部分难题全对，本题已自动计为正确（直接作答可覆盖）' : '';
+  $('skipTag').classList.toggle('hidden', !skipped && !credited);
   stopSpeaking();
   $('questionMedia').innerHTML = '';
   $('questionMedia').classList.remove('stimulus');
@@ -1178,6 +1268,7 @@ async function commitPendingAnswer() {
   rebuildAnswers();
   pendingAnswer = null;
   currentQuestionTelemetry = null;
+  if (!(await applyAdaptive(activeQuestions[pending.index].planIndex))) setQuizStatus('自适应计分未能全部写入本机记录，请检查存储。');
   return true;
 }
 
@@ -1254,10 +1345,10 @@ function rebuildAnswers() {
     .map((indexKey) => answerByQuestion[indexKey]);
 }
 
-/* 预先自动跳过的题（如不熟悉字母）在顺序作答时直接越过；从“部分”菜单仍可进入补做 */
+/* 预先自动跳过的题（如不熟悉字母）和自适应计为正确的题在顺序作答时直接越过；从“部分”菜单仍可进入补做 */
 function nextOpenIndex(from, step = 1) {
   let index = from;
-  while (index >= 0 && index < activeQuestions.length && answerByQuestion[index]?.autoSkipped) index += step;
+  while (index >= 0 && index < activeQuestions.length && (answerByQuestion[index]?.autoSkipped || answerByQuestion[index]?.adaptiveCredited)) index += step;
   return index;
 }
 
@@ -1290,6 +1381,10 @@ async function recordSkips(indexes, code, auto) {
     });
   }));
   rebuildAnswers();
+  if (!auto) {
+    const parts = new Set(indexes.map((index) => activeQuestions[index].planIndex));
+    for (const planIndex of parts) results.push(await applyAdaptive(planIndex));
+  }
   return results.every(Boolean);
 }
 
@@ -1601,7 +1696,7 @@ async function loadSession(id) {
     return false;
   }
   const chosen = [...new Set(record.plan.map((step) => step.preset))].map((name) => presets.find((preset) => preset.name === name));
-  const built = chosen.every(Boolean) ? buildPlan(chosen, record.ageBand) : null;
+  const built = chosen.every(Boolean) ? buildPlan(chosen, record.ageBand, Boolean(record.adaptive)) : null;
   if (!built || built.questions.length !== record.questionCount) {
     window.alert('这次测试用到的问卷已被修改或删除，题目对不上，无法恢复。原始记录仍保存在本机。');
     return false;
@@ -1627,7 +1722,8 @@ async function loadSession(id) {
   activeQuestions = built.questions;
   answerByQuestion = {};
   events.forEach(({ id: eventId, sessionId: owner, sequence, recordedAt, type, ...fields }) => {
-    if (type === 'answer_committed' || type === 'question_skipped') answerByQuestion[fields.index] = fields;
+    if (type === 'answer_committed' || type === 'question_skipped' || type === 'adaptive_credited') answerByQuestion[fields.index] = fields;
+    else if (type === 'adaptive_revoked') delete answerByQuestion[fields.index];
   });
   rebuildAnswers();
   return true;
@@ -1673,7 +1769,8 @@ async function renderRecentSessions() {
     const rows = await Promise.all(sessions.map(async (session) => {
       const answered = new Set();
       (await idbGetSessionEvents(session.id)).forEach((event) => {
-        if (event.type === 'answer_committed' || event.type === 'question_skipped') answered.add(event.index);
+        if (event.type === 'answer_committed' || event.type === 'question_skipped' || event.type === 'adaptive_credited') answered.add(event.index);
+        else if (event.type === 'adaptive_revoked') answered.delete(event.index);
       });
       return { session, answered: answered.size };
     }));
@@ -1728,7 +1825,7 @@ function renderSectionResults() {
   const stats = sectionStats();
   const rows = stats.map((group) => {
     const unanswered = group.total - group.answered - group.skipped;
-    const skipNote = [group.skipped ? `跳过 ${group.skipped}（${formatSkipCodes(group.skipCodes)}）` : '', unanswered ? `未作答 ${unanswered}` : '', group.uncertain ? `标记 3（不确定）${group.uncertain}，不计入正确率` : ''].filter(Boolean).join('<br>');
+    const skipNote = [group.credited ? `难题全对，${group.credited} 题自动计为正确` : '', group.skipped ? `跳过 ${group.skipped}（${formatSkipCodes(group.skipCodes)}）` : '', unanswered ? `未作答 ${unanswered}` : '', group.uncertain ? `标记 3（不确定）${group.uncertain}，不计入正确率` : ''].filter(Boolean).join('<br>');
     const judged = group.answered - group.uncertain;
     let result;
     let rate;
@@ -1756,7 +1853,8 @@ function renderSectionResults() {
   const totalRow = scored.length
     ? `<tr class="total"><td>合计（不含量表）</td><td class="result">${totals.correct}/${totals.answered} (${totals.total})</td><td class="rate">${totals.answered ? `${Math.round((totals.correct / totals.answered) * 100)}%` : '—'}</td><td class="skip"></td></tr>`
     : '';
-  const legend = `<p class="muted">医生标记：${markLegend}<br>跳过代码：${skipReasons.map(([code, label]) => `${code} ${label}`).join('；')}</p>`;
+  const adaptiveNote = activePlan.some((step) => step.adaptive) ? '自适应：每部分先做难题，全部答对则其余题自动计为正确。<br>' : '';
+  const legend = `<p class="muted">${adaptiveNote}医生标记：${markLegend}<br>跳过代码：${skipReasons.map(([code, label]) => `${code} ${label}`).join('；')}</p>`;
   $('sectionResults').innerHTML = `<table class="section-table"><thead><tr><th>分区</th><th>答对/已答（总题数）</th><th>正确率</th><th>跳过（代码×题数）</th></tr></thead><tbody>${rows.join('')}${totalRow}</tbody></table>${legend}`;
 }
 
@@ -1877,6 +1975,7 @@ async function download(extension, type) {
     epilepsy,
     education,
     lettersFamiliar,
+    adaptive: activePlan.some((step) => step.adaptive),
     skipReasons: Object.fromEntries(skipReasons),
     markLabels,
     preset: planLabel(),
@@ -1891,6 +1990,7 @@ async function download(extension, type) {
     const question = activeQuestions[answer.questionIndex];
     if (!question) return ['', '', ''];
     if (answer.skipped) return ['', '', question.correct ?? ''];
+    if (answer.adaptiveCredited) return ['1', '', question.correct ?? ''];
     if (question.scoring === 'scale') return ['', String(scaleScore(question, answer.answer)), ''];
     if (question.scoring === 'record' || question.scoring === 'task') return ['', '', ''];
     if (answer.mark === '3' || (question.scoring === 'manual' && !answer.mark)) return ['', '', question.correct ?? ''];
@@ -1900,14 +2000,14 @@ async function download(extension, type) {
   const answerRows = answers.map((answer) => {
     const [correct, score, expected] = describe(answer);
     return [patient, patientName, patientGender, patientAge, patientOccupation, ageBand, education, lettersFamiliar, planLabel(), answer.questionIndex, answer.section, answer.question, answer.answer, answer.mark, answer.markLabel, expected, correct, score,
-      answer.skipCode, answer.skipReason, answer.time, answer.answerDurationMs, answer.confirmationDelayMs, answer.reactionTimeMs, answer.answerChanges, answer.audioPlayCount].map(quote).join(',');
+      answer.skipCode, answer.skipReason, answer.time, answer.answerDurationMs, answer.confirmationDelayMs, answer.reactionTimeMs, answer.answerChanges, answer.audioPlayCount, answer.adaptiveCredited ? '1' : '', activeQuestions[answer.questionIndex]?.hard ? '1' : ''].map(quote).join(',');
   });
-  const statRows = stats.map((group) => [`${group.code} 部分`, group.name, group.scoring, group.correct, group.answered, group.uncertain, group.skipped, formatSkipCodes(group.skipCodes), group.total, group.score].map(quote).join(','));
+  const statRows = stats.map((group) => [`${group.code} 部分`, group.name, group.scoring, group.correct, group.answered, group.uncertain, group.skipped, formatSkipCodes(group.skipCodes), group.total, group.score, group.credited].map(quote).join(','));
   const content = type === 'json'
     ? JSON.stringify(data, null, 2)
-    : '\uFEFFpatient,name,gender,age,occupation,ageBand,education,lettersFamiliar,preset,questionIndex,section,question,answer,mark,markLabel,expected,correct,score,skipCode,skipReason,time,answerDurationMs,confirmationDelayMs,reactionTimeMs,answerChanges,audioPlayCount\n'
+    : '\uFEFFpatient,name,gender,age,occupation,ageBand,education,lettersFamiliar,preset,questionIndex,section,question,answer,mark,markLabel,expected,correct,score,skipCode,skipReason,time,answerDurationMs,confirmationDelayMs,reactionTimeMs,answerChanges,audioPlayCount,adaptiveCredited,hardItem\n'
       + answerRows.join('\n')
-      + '\n\n类型,分区,评分方式,答对,已答,标记不确定,跳过,跳过代码,总题数,量表总分\n'
+      + '\n\n类型,分区,评分方式,答对,已答,标记不确定,跳过,跳过代码,总题数,量表总分,自适应计为正确\n'
       + statRows.join('\n');
   const filename = `${safeFilePart(patient)}_${sessionId || Date.now()}.${extension}`;
   const mime = type === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8';

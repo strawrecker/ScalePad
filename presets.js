@@ -154,7 +154,7 @@ const section = (id, name, intro, rows, options, response = 'choice', extra = {}
 
 const buildSection = (def) => {
   const intro = def.intro.replace('{n}', String(def.rows.length));
-  return def.rows.map(([item, answer, image]) => {
+  return def.rows.map(([item, answer, image], index) => {
     const built = builders[def.id](item, answer, def);
     const media = Array.isArray(image) ? { sequence: { dots: image[0], arrow: image[1], dotsMs: def.dotsMs } } : image ? { image } : {};
     return {
@@ -170,7 +170,8 @@ const buildSection = (def) => {
       ...media,
       ...(audioOnly.has(def.id) ? { delivery: 'audio' } : {}),
       ...(def.needsLetters ? { needsLetters: true } : {}),
-      ...(def.ageBand ? { ageBand: def.ageBand } : {})
+      ...(def.ageBand ? { ageBand: def.ageBand } : {}),
+      ...(def.hard?.includes(index + 1) ? { hard: true } : {})
     };
   });
 };
@@ -610,11 +611,80 @@ const taskQuestion = (task, title, intro) => ({
   options: []
 });
 
+/* ---------------- 自适应用的难题 ----------------
+ * 按分区名列出“难题”的题号（从 1 开始，按本分区原始顺序）。
+ * 开启自适应后，每个部分先做这些难题；全部答对，本部分其余题直接记为正确。
+ * 这一版是按经验挑的（比较对象接近、答案反直觉、刺激更复杂），积累数据后应按实际错误率调整。
+ * 在问卷编辑里也可以逐题勾选“难题”。
+ */
+const shared = {
+  物理细节心理表征测试: [2, 6, 7, 9, 10, 12, 14, 15],
+  '色彩对比测试（第二部分）': [4, 6, 7, 9, 10],
+  '名人面孔心理表征测试（18–30岁）': [3, 5, 7, 9, 10],
+  '名人面孔心理表征测试（30–60岁）': [3, 5, 7, 9, 10],
+  城市地理方位判断测试: [4, 5, 7, 8, 11, 13, 15]
+};
+const hardImageryA = {
+  ...shared,
+  动物比较测试: [1, 2, 5, 8, 10],
+  物体对比测试: [1, 2, 5, 6, 10],
+  形态辨别测试: [1, 3, 4, 7, 10],
+  物体心理表征测试: [1, 4, 5, 8, 10],
+  物体典型颜色回忆测试: [4, 5, 7, 8, 9],
+  '色彩对比测试（第一部分）': [2, 4, 7, 8, 9],
+  个位数心理表征测试: [3, 6, 7, 8, 9],
+  多位数心理表征测试: [3, 5, 6, 8, 9],
+  字母心理构建测试: [3, 5, 6, 7, 9, 10, 12],
+  汉字心理表征测试: [1, 3, 4, 6, 8, 9, 12],
+  词语心理表征测试: [4, 6, 8, 9, 11, 12, 13],
+  空间表征测试: [1, 2, 3, 5, 6, 8, 9, 10],
+  时钟测试: [2, 4, 8, 9, 12, 14, 15]
+};
+const hardImageryB = {
+  ...shared,
+  动物比较测试: [1, 2, 6, 7, 10],
+  物体对比测试: [1, 3, 5, 6, 8],
+  形态辨别测试: [1, 2, 3, 5, 9],
+  物体心理表征测试: [3, 4, 5, 8, 10],
+  物体典型颜色回忆测试: [1, 3, 4, 8, 9],
+  '色彩对比测试（第一部分）': [4, 5, 6, 8, 10],
+  个位数心理表征测试: [2, 6, 7, 9, 10],
+  多位数心理表征测试: [2, 3, 4, 7, 8],
+  字母心理构建测试: [3, 6, 7, 10, 11, 12, 13],
+  汉字心理表征测试: [3, 4, 5, 6, 8, 10, 12],
+  词语心理表征测试: [1, 4, 5, 8, 11, 12, 13],
+  空间表征测试: [1, 3, 4, 7, 8, 10, 13, 15],
+  时钟测试: [1, 4, 6, 7, 10, 12, 14]
+};
+const hardPerceptionA = {
+  物理细节判断测试: [2, 6, 7, 9, 10, 12, 14, 15],
+  颜色名称测试: [3, 5, 8, 9, 11, 12, 13],
+  个位数阅读测试: [2, 4, 6, 8, 10],
+  多位数阅读测试: [1, 3, 4, 8, 10],
+  字母阅读测试: [2, 4, 5, 9, 10, 11, 13],
+  词语阅读测试: [1, 5, 9, 10, 11, 14, 15],
+  '名人面孔识别测试（18–30岁）': [5, 7, 8, 9, 10],
+  '名人面孔识别测试（31–60岁）': [1, 7, 8, 9, 10],
+  空间感知测试: [1, 2, 3, 5, 6, 8, 9, 10],
+  时钟识别测试: [1, 3, 4, 9, 10, 14, 15]
+};
+const hardPerceptionB = {
+  ...hardPerceptionA,
+  多位数阅读测试: [2, 4, 5, 7, 9],
+  字母阅读测试: [2, 4, 8, 9, 10, 11, 12],
+  词语阅读测试: [1, 5, 7, 9, 12, 13, 14],
+  '名人面孔识别测试（18–30岁）': [5, 6, 7, 8, 9],
+  '名人面孔识别测试（31–60岁）': [2, 4, 8, 9, 10],
+  空间感知测试: [1, 3, 4, 7, 8, 10, 13, 15],
+  时钟识别测试: [3, 5, 6, 7, 10, 14, 15]
+};
+const withHard = (defs, map) => defs.map((def) => (map[def.name] ? { ...def, hard: map[def.name] } : def));
+
 window.scalePadPresets = [
-  { name: 'BIP A｜视觉心理意象', questions: audioLast(imageryA).flatMap(buildSection) },
-  { name: 'BIP B｜视觉心理意象', questions: audioLast(imageryB).flatMap(buildSection) },
-  { name: 'BIP A｜视觉感知', questions: perceptionA.flatMap(buildSection) },
-  { name: 'BIP B｜视觉感知', questions: perceptionB.flatMap(buildSection) },
+  { name: 'BIP A｜视觉心理意象', questions: withHard(audioLast(imageryA), hardImageryA).flatMap(buildSection) },
+  { name: 'BIP B｜视觉心理意象', questions: withHard(audioLast(imageryB), hardImageryB).flatMap(buildSection) },
+  { name: 'BIP A｜视觉感知', questions: withHard(perceptionA, hardPerceptionA).flatMap(buildSection) },
+  { name: 'BIP B｜视觉感知', questions: withHard(perceptionB, hardPerceptionB).flatMap(buildSection) },
   { name: 'VVIQ｜视觉想象生动性', questions: vviq },
   { name: 'PIT｜前瞻意象任务', questions: pit },
   { name: 'BAI｜贝克焦虑量表', questions: bai },

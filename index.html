@@ -72,6 +72,8 @@
     .editor-form > label { display: block; margin-top: 18px; font-size: 20px; font-weight: 600; }
     .question-edit { margin: 16px 0; padding: 18px; border: 1px solid #d9e2ec; border-radius: 12px; background: #f8fafc; }
     .question-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; font-size: 20px; font-weight: 700; }
+    .question-head .hard-toggle { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 400; white-space: nowrap; }
+    .question-head .hard-toggle input { width: 20px; height: 20px; margin: 0; }
     .question-head button { width: auto; margin: 0; padding: 8px 12px; font-size: 16px; background: #ffe4e1; color: #9b2c2c; }
     .question-edit input { margin: 6px 0 10px; font-size: 19px; }
     .option-row { display: flex; align-items: center; gap: 8px; }
@@ -251,6 +253,12 @@
         <button class="small" id="lettersYes" type="button">熟悉</button>
         <button class="small" id="lettersNo" type="button">不熟悉</button>
         <em id="lettersNote"></em>
+      </div>
+      <div class="confirm-row">
+        <span>自适应</span>
+        <button class="small" id="adaptiveOff" type="button">关闭</button>
+        <button class="small" id="adaptiveOn" type="button">开启</button>
+        <em>开启后每部分先做约一半难题，全部答对则其余题自动计为正确（只对 BIP 有对错的部分生效）</em>
       </div>
       <div class="confirm-row">
         <span>机器语音读题</span>
