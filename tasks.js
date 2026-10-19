@@ -42,11 +42,11 @@
   /* 原程序 sheet 名：datetime.now().strftime("%Y-%m-%d_%H-%M-%S") */
   const sheetStamp = (date = new Date()) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
 
-  /* 原尺寸放得下就按原尺寸；放不下（竖屏、iPad mini）按比例缩小并如实记录 */
+  /* 画面按比例铺满屏幕（原尺寸太小，很多患者看不清）。坐标和计分仍按原程序的 800×600，结果不受影响；
+   * 实际画出的数轴长度记在 meta.lineCm。比原尺寸还小时（竖屏、iPad mini）scaled = true */
   function layout() {
     const unit = (LINE_CM * pxPerCm()) / LINE_PX;
-    const fit = Math.min(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H);
-    const scale = Math.min(unit, fit);
+    const scale = Math.min(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H) * 0.96;
     return { scale, scaled: scale < unit - 1e-6, lineCm: (LINE_PX * scale) / pxPerCm() };
   }
 
@@ -60,7 +60,17 @@
       this.abortButton.className = 'task-abort';
       this.abortButton.textContent = '×';
       this.abortButton.title = '长按中止任务';
-      this.root.append(this.canvas, this.abortButton);
+      this.skipButton = document.createElement('button');
+      this.skipButton.type = 'button';
+      this.skipButton.className = 'task-skip';
+      this.skipButton.textContent = '长按跳过';
+      this.skipButton.title = '长按 1 秒（或长按 Q / 空格）跳过本评估';
+      this.backButton = document.createElement('button');
+      this.backButton.type = 'button';
+      this.backButton.className = 'task-back hidden';
+      this.backButton.textContent = '‹ 返回';
+      this.backButton.addEventListener('pointerdown', (event) => { event.preventDefault(); event.stopPropagation(); this.abort('back'); });
+      this.root.append(this.canvas, this.abortButton, this.skipButton, this.backButton);
       document.body.append(this.root);
       this.ctx = this.canvas.getContext('2d');
       this.layout = layout();
@@ -85,17 +95,41 @@
         holdTimer = window.setTimeout(() => { release(); this.abort(); }, 1500);
       });
       ['pointerup', 'pointerleave', 'pointercancel'].forEach((type) => this.abortButton.addEventListener(type, release));
+      /* 跳过本评估：长按按钮 1 秒，或长按 Q / 空格 1 秒 */
+      let skipTimer = null;
+      let skipKey = null;
+      const skipRelease = () => { if (skipTimer) window.clearTimeout(skipTimer); skipTimer = null; skipKey = null; this.skipButton.classList.remove('holding'); };
+      const skipHold = () => {
+        if (skipTimer) return;
+        this.skipButton.classList.add('holding');
+        skipTimer = window.setTimeout(() => { skipRelease(); this.abort('skipped'); }, 1000);
+      };
+      this.skipButton.addEventListener('pointerdown', (event) => { event.preventDefault(); event.stopPropagation(); skipHold(); });
+      ['pointerup', 'pointerleave', 'pointercancel'].forEach((type) => this.skipButton.addEventListener(type, skipRelease));
+      const onKeyDown = (event) => {
+        if (event.code !== 'KeyQ' && event.code !== 'Space') return;
+        event.preventDefault();
+        if (event.repeat) return;
+        skipKey = event.code;
+        skipHold();
+      };
+      const onKeyUp = (event) => { if (event.code === skipKey) skipRelease(); };
+      window.addEventListener('keydown', onKeyDown);
+      window.addEventListener('keyup', onKeyUp);
+      this.cleanups.push(() => { skipRelease(); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); });
     }
 
-    abort() {
+    abort(reason = 'aborted') {
+      if (this.aborted) return;
       this.aborted = true;
-      this.abortWaiters.forEach((reject) => reject(new Error('aborted')));
+      this.abortReason = reason;
+      this.abortWaiters.forEach((reject) => reject(new Error(reason)));
       this.abortWaiters.clear();
     }
 
     /* 包一层：任务中途被中止时，正在等待的 Promise 立即结束 */
     guard(promise) {
-      if (this.aborted) return Promise.reject(new Error('aborted'));
+      if (this.aborted) return Promise.reject(new Error(this.abortReason || 'aborted'));
       return new Promise((resolve, reject) => {
         this.abortWaiters.add(reject);
         promise.then((value) => { this.abortWaiters.delete(reject); resolve(value); }, (error) => { this.abortWaiters.delete(reject); reject(error); });
@@ -103,6 +137,23 @@
     }
 
     wait(ms) { return this.guard(sleep(ms)); }
+
+    /* 开始页（欢迎和说明）：这几秒里可以退回题目页，A / Esc 或点“返回”（← 是点数题的选左键，不用来返回），什么都不记 */
+    async intro(ms) {
+      this.backButton.classList.remove('hidden');
+      const onKey = (event) => {
+        if (event.code !== 'KeyA' && event.code !== 'Escape') return;
+        event.preventDefault();
+        this.abort('back');
+      };
+      window.addEventListener('keydown', onKey);
+      try {
+        await this.wait(ms);
+      } finally {
+        window.removeEventListener('keydown', onKey);
+        this.backButton.classList.add('hidden');
+      }
+    }
 
     destroy() {
       this.cleanups.forEach((fn) => fn());
@@ -239,21 +290,21 @@
     const numbers = shuffle([...NUMBERS]);
     const base = () => {
       stage.clear();
-      stage.line(-300, 0, 300, 0, 2);
-      stage.text('1', -300, -30);
-      stage.text('100', 300, -30);
+      stage.line(-300, 0, 300, 0, 3);
+      stage.text('1', -300, -36, 32);
+      stage.text('100', 300, -36, 32);
     };
     stage.clear();
     stage.text('欢迎参加数字线标记评估！\n\n请将鼠标移动到数字线上，标记出数字对应的位置。\n点击鼠标确认位置。\n\n即将开始，请做好准备。', 0, 0, 30, 600);
-    await stage.wait(5000);
+    await stage.intro(5000);
     const results = [];
     for (const number of numbers) {
       base();
       await stage.wait(1000);
       const draw = (cursor) => {
         base();
-        stage.text(String(number), 0, 100);
-        stage.circle(cursor.x, cursor.y, 5, '#ff0000');
+        stage.text(String(number), 0, 120, 72);
+        stage.circle(cursor.x, cursor.y, 7, '#ff0000');
       };
       draw({ x: 0, y: 0 });
       const startTime = await nextFrame();
@@ -267,7 +318,7 @@
       results.push(trial);
       onTrial?.(trial, results.length - 1);
       stage.clear();
-      stage.text('请确认位置', 0, -100);
+      stage.text('请确认位置', 0, -100, 32);
       await stage.wait(1000);
     }
     const totalError = results.reduce((sum, trial) => sum + trial.deviation, 0);
@@ -319,7 +370,7 @@
         if (event.key === 'ArrowRight') done('right', 'keyboard');
       }));
       removers.push(stage.listen(stage.root, 'pointerdown', (event) => {
-        if (event.target === stage.abortButton) return;
+        if (event.target === stage.abortButton || event.target === stage.skipButton) return;
         event.preventDefault();
         done(event.clientX < window.innerWidth / 2 ? 'left' : 'right', event.pointerType);
       }));
@@ -343,7 +394,7 @@
     stage.clear();
     ['欢迎参加非符号数量比较评估！', '屏幕上会显示两组点图，请判断哪一组的点数更多。', '使用键盘上的左箭头（←）选择左侧，', '右箭头（→）选择右侧。', '每道题的选择时间为5秒，', '若超时则自动跳转下一题。', '即将开始，请做好准备。']
       .forEach((line, index) => stage.text(line, 0, 200 - index * 50, 30, 800));
-    await stage.wait(5000);
+    await stage.intro(5000);
     const results = [];
     let totalRT = 0;
     for (let i = 0; i < DOT_TRIALS; i += 1) {

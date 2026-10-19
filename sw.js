@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bip-evaluation-v29';
+const CACHE_NAME = 'bip-evaluation-v33';
 const CORE_FILES = ['./', './index.html', './app.js', './presets.js', './xlsx.js', './tasks.js', './config.js', './manifest.json'];
 const numbered = (folder, prefix, count, ext = 'png') => Array.from({ length: count }, (_, index) => `./${folder}/${prefix}${String(index + 1).padStart(2, '0')}.${ext}`);
 const sequence = (folder, count) => Array.from({ length: count }, (_, index) => {
@@ -18,7 +18,7 @@ const MATERIAL_FILES = [
   ...numbered('assets/faces-b-18', 'face', 10),
   ...numbered('assets/faces-a-30', 'face', 10),
   ...numbered('assets/faces-b-30', 'face', 10),
-  ...['clock-left', 'clock-right', 'clock-split', 'sequence-1', 'sequence-2', 'sequence-3', 'spatial-no', 'spatial-yes'].map((name) => `./assets/examples/${name}.svg`)
+  ...['clock-305', 'clock-imagine', 'clock-left', 'clock-right', 'clock-split', 'clock-time', 'sequence-1', 'sequence-2', 'sequence-3', 'sequence-no', 'spatial-no', 'spatial-yes'].map((name) => `./assets/examples/${name}.svg`)
 ];
 
 const isCore = (request) => {

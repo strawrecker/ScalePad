@@ -143,9 +143,6 @@
     #questionMedia:empty { display: none; }
     #questionMedia img { width: auto; height: auto; max-width: min(84vw, 940px); max-height: min(44vh, 620px); }
     .section-band { flex: none; padding: 10px 14px; margin-bottom: 6px; border-radius: 12px; background: #eaf3ff; border: 1px solid #c9ddf7; }
-    .section-band-top { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
-    .section-band-top em { flex: none; color: #627d98; font-size: clamp(13px, 1.4vw, 17px); font-style: normal; }
-    .section-band strong { color: #0b6bcb; font-size: clamp(18px, 2.2vw, 26px); }
     .quiz-status { flex: none; margin: 6px 0 0; padding: 8px; border-radius: 8px; background: #fee4e2; color: #b42318; text-align: center; font-size: 16px; font-weight: 700; }
     .section-band span { display: block; margin-top: 3px; color: #334e68; font-size: clamp(15px, 1.8vw, 21px); line-height: 1.35; }
     .question-wrap.handoff .q { color: #486581; }
@@ -217,6 +214,10 @@
     .task-stage canvas { display: block; background: #fff; }
     .task-abort { position: absolute; top: calc(8px + env(safe-area-inset-top)); left: 8px; width: 44px; height: 44px; margin: 0; padding: 0; border-radius: 50%; background: #ffffff22; color: #ffffff66; font-size: 26px; font-weight: 400; }
     .task-abort.holding { background: #fff; color: #b42318; transition: background 1.5s linear, color 1.5s linear; }
+    /* 认知任务里的跳过：长按 1 秒（或长按 Q / 空格），底色从左往右填满才生效 */
+    .task-skip { position: absolute; z-index: 2; width: auto; right: calc(12px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); margin: 0; padding: 10px 18px; border-radius: 12px; background: #334e68 linear-gradient(90deg, #d64545 0 0) no-repeat left / 0% 100%; color: #fff; font-size: 20px; font-weight: 700; opacity: 0.85; }
+    .task-back { position: absolute; z-index: 2; width: auto; left: calc(12px + env(safe-area-inset-left)); bottom: calc(12px + env(safe-area-inset-bottom)); margin: 0; padding: 10px 18px; border-radius: 12px; background: #334e68; color: #fff; font-size: 20px; font-weight: 700; opacity: 0.85; }
+    .task-skip.holding { background-size: 100% 100%; opacity: 1; transition: background-size 1s linear; }
     .task-done { margin: 0; color: #087443; text-align: center; font-size: clamp(20px, 2.6vw, 30px); font-weight: 700; }
     .task-exports { margin-bottom: 12px; }
     .calib-bar { height: 10px; margin: 10px 0 6px; border-left: 2px solid #102a43; border-right: 2px solid #102a43; background: linear-gradient(#102a43, #102a43) center / 100% 2px no-repeat; }
@@ -249,11 +250,6 @@
     .session-row .info em { font-size: 17px; }
     .session-row button { font-size: 21px; }
     .skip-button { font-size: 23px; padding: 12px 20px; }
-    .section-band { padding: 12px 16px; }
-    .section-band strong { font-size: clamp(24px, 3vw, 36px); }
-    .section-band-top em { font-size: clamp(16px, 1.8vw, 22px); }
-    .section-band span { margin-top: 6px; color: #102a43; font-size: clamp(26px, 3.6vw, 46px); font-weight: 700; line-height: 1.3; }
-    .section-band span .intro-action { display: block; margin-top: 4px; color: #0b6bcb; }
     .section-band span .intro-text { display: inline; margin: 0; font-size: inherit; color: inherit; }
     #quiz.media-question .section-band span .intro-text { display: none; }
     #quiz.media-question .section-band span .intro-action { margin-top: 0; }
@@ -308,7 +304,7 @@
     .gate-handoff { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px; border-radius: 16px; background: #fff4e5; color: #9a5b00; text-align: center; }
     .gate-handoff strong { font-size: clamp(34px, 5vw, 60px); }
     .gate-handoff span { font-size: clamp(26px, 3.6vw, 44px); font-weight: 700; color: #102a43; }
-    #quiz.gated #sectionIntro { display: none !important; }
+    #quiz.gated .section-band { display: none !important; }
     .gate-panels { flex: none; display: grid; gap: 12px; }
     .gate-panels.n2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .gate-panels.n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -325,6 +321,39 @@
     .recent-more { display: flex; gap: 10px; margin-top: 8px; }
     .recent-more button { width: auto; margin: 0; padding: 10px 18px; font-size: 21px; }
     .recent-empty { margin: 8px 0; color: #627d98; font-size: 20px; }
+    /* ===== 答题页：部分名小字放顶部按钮里，指导语缩小，题目放大 ===== */
+    .quiz-nav .parts-button { flex: 0 1 auto; min-width: 0; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 10px 14px; font-size: clamp(15px, 1.8vw, 20px); font-weight: 600; }
+    .quiz-nav .skip-button { font-size: clamp(16px, 1.9vw, 21px); padding: 10px 16px; }
+    .section-band { padding: 6px 12px; margin-bottom: 4px; }
+    .section-band span { margin-top: 0; color: #334e68; font-size: clamp(17px, 2vw, 24px); font-weight: 600; line-height: 1.35; }
+    .section-band span .intro-action { display: inline; margin: 0 0 0 10px; color: #0b6bcb; }
+    #quiz.media-question .section-band span .intro-action { margin-left: 0; }
+    .q { font-size: clamp(52px, 8vw, 104px); }
+    .q.medium { font-size: clamp(44px, 6.6vw, 86px); }
+    .q.small { font-size: clamp(34px, 5vw, 64px); }
+    .question-wrap.with-media .q, .question-wrap.with-media .q.medium, .question-wrap.with-media .q.small { font-size: clamp(34px, 5vw, 64px); }
+    #choices .speak-hint { font-size: clamp(22px, 2.8vw, 34px); font-weight: 600; color: #486581; }
+    button.gate-start:disabled { background: #9fb3c8; color: #fff; opacity: 1; }
+    #skipOverlay h3 small { font-size: 0.6em; font-weight: 400; }
+    #choices button.unseen-option { flex: 0 0 22%; background: #f0f2f5; color: #52606d; font-size: clamp(22px, 2.8vw, 34px); }
+    #choices.many button.unseen-option { font-size: clamp(22px, 2.8vw, 34px); }
+    #choices.many.has-unseen { grid-template-columns: 1fr 1fr 0.55fr; }
+    /* 选中后要变色，否则点了看不出反应 */
+    #choices button.unseen-option.selected { background: #52606d; color: #fff; }
+    #choices button.unseen-option::after { content: '键盘 3'; display: block; margin-top: 4px; font-size: 14px; font-weight: 400; opacity: 0.6; }
+    /* 示例图上方的答案标签 */
+    .gate-panels.n4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .gate-panels.n4 img { height: clamp(90px, 19vh, 260px); }
+    .gate-panels .answer-badge { align-self: stretch; padding: 4px 8px; border-radius: 10px; background: #e3eefb; color: #0b6bcb; text-align: center; font-size: clamp(24px, 3vw, 38px); font-weight: 800; }
+    .gate-panels .answer-badge.spacer { visibility: hidden; }
+    .gate-panels figure.tone-yes { border-color: #3f9142; }
+    .gate-panels figure.tone-yes .answer-badge { background: #e3f4e4; color: #1f6b22; }
+    .gate-panels figure.tone-no { border-color: #d64545; }
+    .gate-panels figure.tone-no .answer-badge { background: #fde8e8; color: #b42318; }
+    /* 长按键盘时的提示 */
+    .key-hint { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 30; overflow: hidden; padding: 10px 20px; border-radius: 12px; background: #102a43e6; color: #fff; font-size: 22px; font-weight: 700; transform: translateX(-50%); pointer-events: none; }
+    .key-hint.holding::after { content: ''; position: absolute; left: 0; bottom: 0; height: 4px; width: 100%; background: #7cc4fa; transform-origin: left; animation: key-hold var(--hold-ms, 500ms) linear both; }
+    @keyframes key-hold { from { transform: scaleX(0); } to { transform: scaleX(1); } }
   </style>
 </head>
 <body>
@@ -371,7 +400,7 @@
         <span>自适应</span>
         <button class="small" id="adaptiveOff" type="button">关闭</button>
         <button class="small" id="adaptiveOn" type="button">开启</button>
-        <em>只在结果明确时省略题目，看不出来就全部做完。每部分先做难题、至少做 5 题：难题全对则其余题记为正确，连续答错 4 题则其余题跳过。只对 BIP 有对错的部分生效，情绪量表和 VVIQ/PIT 不受影响</em>
+        <em>只在结果明确时省略题目，看不出来就全部做完。每部分先做难题：连续答对 5 题则其余题记为正确；至少做满 5 题后连续答错 4 题则其余题跳过。名人题无论如何全部做完。只对 BIP 有对错的部分生效，情绪量表和 VVIQ/PIT 不受影响</em>
       </div>
       <div class="confirm-row">
         <span>机器语音读题</span>
@@ -379,7 +408,7 @@
         <button class="small" id="voiceOn" type="button">开启</button>
         <em>默认关闭，由医生口头读题；答题中也可随时切换</em>
       </div>
-      <p class="setup-note">医生记录的题目用数字标记对错：<strong>1 正确　2 错误　3 不确定</strong>（按钮只显示数字，患者看不出含义）</p>
+      <p class="setup-note">医生记录的题目用数字标记对错：<strong>1 正确　2 错误　3 不确定</strong>；名人面孔识别是 <strong>1 正确　2 错误　3 没见过</strong>（见过但说不出来记 2，没见过记 3，不计入正确率）。名人比较题（谁的脸更圆等）按 <strong>3 = 有人没见过</strong>。<br>电脑键盘：<strong>A 上一题、D 下一题</strong>（← → 也行）、W 上一部分、S 下一部分，1 / 2 / 3 标记，按一下即可；<strong>跳过要长按 Q 或空格</strong>，再按 1–6 选代码。<br>跳过菜单和答题屏幕上只显示代码，不写原因（患者看不出为什么跳过）：<strong>1 → 001 过于简单　2 → 002 太难　3 → 003 不熟悉内容（不认识名人、字母等）　4 → 004 拒绝或疲劳　5 → 005 设备问题　6 → 009 其他</strong>；自适应自动记为正确的题显示“已记录 A”。</p>
       <label>选择量表（一般选 A 套或 B 套；按点击顺序作答，答题中可随时切换部分）</label>
       <div id="scaleList" class="scale-list"></div>
       <button id="start">开始</button>
@@ -395,12 +424,12 @@
     <section id="quiz" class="card hidden">
       <div class="quiz-nav">
         <button class="icon-button" id="prevQuestion" type="button" aria-label="上一题" title="上一题"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button>
-        <button class="skip-button" id="partsButton" type="button">部分</button>
+        <button class="skip-button parts-button" id="partsButton" type="button">部分</button>
         <button class="skip-button" id="skipButton" type="button">跳过…</button>
         <button class="skip-button" id="quizVoiceToggle" type="button">语音：关</button>
         <button class="icon-button" id="nextQuestion" type="button" aria-label="下一题" title="下一题"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button>
       </div>
-      <div class="section-band"><div class="section-band-top"><strong id="sectionName"></strong><em id="sectionMeta"></em></div><span id="sectionIntro"></span></div>
+      <div class="section-band"><span id="sectionIntro"></span></div>
       <div class="gate-card" id="gateCard"></div>
       <div class="question-wrap" id="questionWrap"><div class="q" id="question"></div><button class="icon-button audio-button" id="speakQuestion" type="button" aria-label="朗读题目" title="朗读题目">🔊</button></div>
       <div id="questionMedia"></div>
@@ -409,6 +438,7 @@
       <p class="skip-tag hidden" id="skipTag"></p>
       <p class="researcher-script hidden" id="researcherScript"></p>
       <p class="quiz-status hidden" id="quizStatus" aria-live="polite"></p>
+      <div class="key-hint hidden" id="keyHint" aria-live="polite"></div>
     </section>
     <div id="partsOverlay" class="overlay hidden">
       <div class="overlay-panel">
@@ -419,7 +449,7 @@
     </div>
     <div id="skipOverlay" class="overlay hidden">
       <div class="overlay-panel">
-        <h3>跳过原因</h3>
+        <h3>跳过 <small class="muted">（按 1–6 选代码，Esc 取消）</small></h3>
         <div class="skip-scope"><button class="small" id="skipScopeOne" type="button">仅本题</button><button class="small" id="skipScopePart" type="button">本部分剩余题</button></div>
         <div id="skipList" class="parts-list"></div>
         <div class="overlay-actions"><button class="small" id="skipClose" type="button">取消</button></div>

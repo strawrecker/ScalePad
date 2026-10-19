@@ -27,13 +27,16 @@ const pickTwo = (item, firstIsCorrect, prompt) => {
 };
 
 const clockOptions = ['都在左侧', '都在右侧', '一左一右'];
+const heightOptions = ['高 / 长', '矮 / 扁'];
+/* 名人比较题的第三个按钮：有人没见过时点它，这题不计入正确率 */
+const unseenOption = '有人没见过';
 const clockCorrect = (answer) => (answer === '左' ? '都在左侧' : answer === '右' ? '都在右侧' : '一左一右');
 
 const builders = {
-  animalSize: (item, answer) => pickTwo(item, answer !== '大', '哪个更大？'),
-  objectSize: (item, answer) => pickTwo(item, answer === '1', '哪个更大？'),
+  animalSize: (item, answer) => pickTwo(item, answer !== '大', '哪个体型更大？'),
+  objectSize: (item, answer) => pickTwo(item, answer === '1', '哪个体积更大？'),
   colorCompare: (item, answer) => pickTwo(item, answer === '1', '哪个颜色更浅？'),
-  cityWest: (item, answer) => pickTwo(item, answer === '1', '哪个城市更靠西？'),
+  cityWest: (item, answer) => pickTwo(item, answer === '1', '哪个城市在武汉的西边（地图左边）？'),
 
   earShape: (item) => ({
     text: `${item}的耳朵是圆的还是尖的？`,
@@ -46,17 +49,20 @@ const builders = {
   shapeDiff: (item) => {
     const [first, second] = splitPair(item);
     return {
-      text: `${first} 和 ${second} 有什么区别？`,
-      audioText: `请比较${first}和${second}，说出能区分它们的特征。`
+      text: `${first}和${second}长得有什么不一样？`,
+      audioText: `请想象${first}和${second}，它们长得有什么不一样？`
     };
   },
-  objectHeight: (item) => ({
-    text: `${item}是高的还是矮的？`,
-    audioText: `请想象${item}，它是高的还是矮的？`
+  /* 选项写成“高 / 长”“矮 / 扁”，长条形、扁平形的东西也好回答 */
+  objectHeight: (item, answer) => ({
+    text: `${item}是高（长）的，还是矮（扁）的？`,
+    audioText: `请想象${item}，它是高的、长的，还是矮的、扁的？`,
+    options: heightOptions,
+    correct: answer === '高' ? heightOptions[0] : heightOptions[1]
   }),
   typicalColor: (item) => ({
-    text: `${item}的典型颜色是什么？`,
-    audioText: `请想象${item}，说出它的典型颜色。`
+    text: `${item}一般是什么颜色？`,
+    audioText: `请想象${item}，它一般是什么颜色？`
   }),
   digitCurve: (item) => ({
     text: `数字 ${item} 有弯曲的地方吗？`,
@@ -91,14 +97,15 @@ const builders = {
   }),
   celebrity: (item, answer) => {
     const names = comparisonNames(item);
-    const detail = item.match(/[（(]([^）)]*)[）)]/)?.[1]?.trim() || '哪一位更符合描述';
+    const detail = item.match(/[（(]([^）)]*)[）)]/)?.[1]?.trim() || '谁更符合';
     const asked = detail.includes('谁') ? detail : `${detail}的是谁`;
     const prompt = asked.endsWith('？') ? asked : `${asked}？`;
     return {
       text: prompt,
       display: prompt,
       audioText: `请想象${names[0]}和${names[1]}的面孔。${prompt}`,
-      options: names,
+      options: [...names, unseenOption],
+      unseenOption,
       correct: answer === '1' ? names[0] : names[1]
     };
   },
@@ -159,6 +166,9 @@ const buildSection = (def) => {
       audioText: built.audioText || built.text,
       ...media,
       ...(audioOnly.has(def.id) ? { delivery: 'audio' } : {}),
+      ...(built.unseenOption ? { unseenOption: built.unseenOption } : {}),
+      ...(def.unseenMark ? { unseenMark: true } : {}),
+      ...(fullParts.has(def.id) ? { fullPart: true } : {}),
       ...(def.needsLetters ? { needsLetters: true } : {}),
       ...(def.ageBand ? { ageBand: def.ageBand } : {}),
       ...(def.hard?.includes(index + 1) ? { hard: true } : {}),
@@ -182,21 +192,29 @@ const withSequence = (def, folder) => ({
   })
 });
 
+/* 名人题（看图说名字、想象比较）：无论如何全部做完，自适应不省略 */
+const fullParts = new Set(['celebrity', 'faceName']);
+
 /* 需要靠听、不能让患者看到题目的分区，由医生手持设备读题 */
 const audioOnly = new Set(['digitCurve', 'digitLoop', 'letterBuild', 'hanziStructure', 'hanziDot', 'wordStructure']);
 /* 患者看屏幕口答、由医生判断对错的分区 */
 const doctorJudged = (def) => def.response === 'text' && !audioOnly.has(def.id);
 const doctorRun = (def) => doctorJudged(def) || audioOnly.has(def.id);
-/* 单独一卷：医生判断的分区 → 医生读题的分区 → 患者自己点选的分区 */
-const doctorFirst = (defs) => [...defs.filter(doctorJudged), ...defs.filter((def) => audioOnly.has(def.id)), ...defs.filter((def) => !doctorRun(def))];
-/* 感知 + 想象一套做：医生部分全放开头（先感知后想象），之后患者部分里同类题挨着、先感知再想象 */
+/* 朗读数字、字母、词语的分区：患者要先看过这些字，才能做靠听的数字、字母、汉字题 */
+const readFirst = (def) => def.id === 'readAloud';
+/* 单独一卷：朗读分区 → 医生读题的分区 → 医生判断的分区 → 患者自己点选的分区 */
+const doctorFirst = (defs) => [...defs.filter(readFirst), ...defs.filter((def) => audioOnly.has(def.id)), ...defs.filter((def) => doctorJudged(def) && !readFirst(def)), ...defs.filter((def) => !doctorRun(def))];
+/* 感知 + 想象一套做：先朗读数字、字母、词语（看过才能做后面的听题），再做医生读题的分区，
+ * 然后是其余医生判断的口答题（先感知后想象），之后患者部分里同类题挨着、先感知再想象 */
 const perceptionPairs = { earShapeImage: 'earShape', spatial: 'spatialSequence', clockImage: 'clockImagery' };
 const combinedSet = (perception, imagery) => {
   const paired = new Set(Object.values(perceptionPairs));
   return [
-    ...perception.filter(doctorJudged),
-    ...imagery.filter(doctorJudged),
+    ...perception.filter(readFirst),
+    ...perception.filter((def) => audioOnly.has(def.id)),
     ...imagery.filter((def) => audioOnly.has(def.id)),
+    ...perception.filter((def) => doctorJudged(def) && !readFirst(def)),
+    ...imagery.filter(doctorJudged),
     ...perception.filter((def) => !doctorRun(def)).flatMap((def) => [def, ...imagery.filter((other) => other.id === perceptionPairs[def.id])]),
     ...imagery.filter((def) => !doctorRun(def) && !paired.has(def.id))
   ];
@@ -207,33 +225,35 @@ const examples = {
   spatial: {
     title: '示例：箭头有没有指向某个黑点？',
     panels: [
-      { image: 'assets/examples/spatial-yes.svg', caption: '箭头顺着方向延长（红色虚线），正好碰到一个黑点 → 选“是”' },
-      { image: 'assets/examples/spatial-no.svg', caption: '箭头延长后从黑点旁边经过，一个黑点也没碰到 → 选“否”' }
+      { image: 'assets/examples/spatial-yes.svg', answer: '是', tone: 'yes', caption: '箭头往前延长（红色虚线），碰到了一个黑点' },
+      { image: 'assets/examples/spatial-no.svg', answer: '否', tone: 'no', caption: '箭头往前延长，一个黑点也没碰到' }
     ]
   },
   spatialSequence: {
     title: '示例：先记住黑点，再判断箭头',
+    note: '③④ 里的灰圈 = 刚才出现过的点，只是帮你看懂，答题时屏幕上没有',
     panels: [
-      { image: 'assets/examples/sequence-1.svg', caption: '① 先出现几个黑点，请记住它们的位置' },
+      { image: 'assets/examples/sequence-1.svg', caption: '① 先出现几个黑点，记住位置' },
       { image: 'assets/examples/sequence-2.svg', caption: '② 黑点消失，只剩一个箭头' },
-      { image: 'assets/examples/sequence-3.svg', caption: '③ 想想刚才黑点在哪（灰圈）：碰到一个 → 选“是”，都碰不到 → 选“否”' }
+      { image: 'assets/examples/sequence-3.svg', answer: '是', tone: 'yes', caption: '③ 箭头延长后，碰到了刚才出现过的点' },
+      { image: 'assets/examples/sequence-no.svg', answer: '否', tone: 'no', caption: '④ 箭头延长后，刚才出现过的点一个也没碰到' }
     ]
   },
   clockImage: {
     title: '示例：以 12 点和 6 点的连线（虚线）分左右',
     panels: [
-      { image: 'assets/examples/clock-right.svg', caption: '1:10：都在右半边 → 都在右侧' },
-      { image: 'assets/examples/clock-left.svg', caption: '10:45：都在左半边 → 都在左侧' },
-      { image: 'assets/examples/clock-split.svg', caption: '2:35：时针在右、分针在左 → 一左一右' }
+      { image: 'assets/examples/clock-right.svg', answer: '都在右侧', caption: '1:10：两根针都在右半边' },
+      { image: 'assets/examples/clock-left.svg', answer: '都在左侧', caption: '10:45：两根针都在左半边' },
+      { image: 'assets/examples/clock-split.svg', answer: '一左一右', caption: '2:35：时针在右、分针在左' }
     ]
   },
   clockImagery: {
-    title: '示例：想象钟面，以 12 点和 6 点的连线分左右',
-    note: '下午的时间照样想象，例如 15:05 就是 3 点 05 分',
+    title: '示例：看到时间 → 想出钟面 → 判断左右',
+    note: '另外两种答案：10:45 两根针都在左侧；2:35 时针在右、分针在左，是一左一右',
     panels: [
-      { image: 'assets/examples/clock-right.svg', caption: '1:10：都在右半边 → 都在右侧' },
-      { image: 'assets/examples/clock-left.svg', caption: '10:45：都在左半边 → 都在左侧' },
-      { image: 'assets/examples/clock-split.svg', caption: '2:35：时针在右、分针在左 → 一左一右' }
+      { image: 'assets/examples/clock-time.svg', caption: '① 屏幕上出现一个时间，例如 15:05（下午 3 点 05 分）' },
+      { image: 'assets/examples/clock-imagine.svg', caption: '② 在脑海里想出这个时间的钟面：时针指 3，分针指 1' },
+      { image: 'assets/examples/clock-305.svg', answer: '都在右侧', caption: '③ 以 12 点和 6 点的连线分左右：两根针都在右边' }
     ]
   }
 };
@@ -245,9 +265,9 @@ const withFaces = (def, folder) => ({
 
 /* ---------------- 共用分区 ---------------- */
 
-const celebrityIntro = '请想象下面两位名人的面孔，比较指定的面部特征，选出更符合要求的一位。';
+const celebrityIntro = '请想象这两位名人的面孔。没见过其中一位时点“有人没见过”。';
 const spatialIntro = '先记住屏幕上几个黑点的位置，约 4 秒后黑点消失、只留一个箭头。请判断箭头有没有指向刚才某个黑点的位置。';
-const cityIntro = '请想象每组城市在中国地图上的位置，选出位于武汉西边（地图左侧）的城市。';
+const cityIntro = '请想象这两个城市在中国地图上的位置。';
 
 const celebrityYoung = section('celebrity', '名人面孔心理表征测试（18–30岁）', celebrityIntro, [
   ['脸型：岳云鹏 / 刘翔（谁的脸更圆）', '1'], ['脸型：韩红 / 武大靖（谁的脸更圆）', '1'], ['脸型：王力宏 / 朗朗（谁的脸更圆）', '2'],
@@ -272,43 +292,43 @@ const cityRows = [
 /* ---------------- BIP A：视觉心理意象 ---------------- */
 
 const imageryA = [
-  section('animalSize', '动物比较测试', '请想象山羊和另一种动物，选出体型更大的一个。', [
+  section('animalSize', '动物比较测试', '请想象这两种动物。', [
     ['山羊 / 奶牛', '大'], ['山羊 / 中华田园犬', '小'], ['山羊 / 骆驼', '大'], ['山羊 / 蝙蝠', '小'], ['山羊 / 水獭', '小'],
     ['山羊 / 土拨鼠', '小'], ['山羊 / 鸽子', '小'], ['山羊 / 鹿', '大'], ['山羊 / 野牛', '大'], ['山羊 / 斑马', '大']
   ], ['大', '小']),
 
-  section('earShape', '物理细节心理表征测试', '请想象这种动物的耳朵，回答是圆的还是尖的。', [
+  section('earShape', '物理细节心理表征测试', '请想象这种动物的耳朵。', [
     ['熊', '圆'], ['河马', '圆'], ['狼', '尖'], ['猫', '尖'], ['熊猫', '圆'], ['山羊', '尖'], ['大猩猩', '圆'], ['大象', '圆'],
     ['驴', '尖'], ['猪', '尖'], ['狐狸', '尖'], ['猎豹', '圆'], ['长颈鹿', '尖'], ['老虎', '圆'], ['马', '尖']
   ], ['圆', '尖']),
 
-  section('objectSize', '物体对比测试', '请想象这两样东西，选出体型或体积更大的一个。', [
+  section('objectSize', '物体对比测试', '请想象这两样东西。', [
     ['苹果 / 火龙果', '2'], ['蝴蝶 / 瓢虫', '1'], ['凳子 / 沙发', '2'], ['鲨鱼 / 三文鱼', '1'], ['笔记本 / 便签', '1'],
     ['绿豆 / 扁豆', '2'], ['金丝雀 / 鹰', '2'], ['仓鼠 / 猴子', '2'], ['斧头 / 螺丝刀', '1'], ['柚子 / 南瓜', '2']
   ], ['1', '2']),
 
-  section('shapeDiff', '形态辨别测试', '请想象这两样东西，说出能把它们区分开的特征。', [
+  section('shapeDiff', '形态辨别测试', '请想象这两样东西。', [
     ['钉子 / 螺丝', '头部没有螺丝或槽口'], ['马背 / 骆驼背', '隆起'], ['猪尾巴 / 牛尾巴', '长度或形状'], ['夹克 / 风衣', '长度'],
     ['火柴 / 牙签', '红色尖端 / 尖头'], ['煲汤锅 / 平底锅', '深度'], ['牙刷 / 梳子', '尺寸'], ['碗 / 过滤器', '洞'],
     ['自行车轮 / 汽车轮', '尺寸或轮辐'], ['桶 / 碗', '深度或内凹程度']
   ], [], 'text', { scoring: 'manual' }),
 
-  section('objectHeight', '物体心理表征测试', '请想象这件物品，回答它是高的（长条形）还是矮的（扁平形）。', [
+  section('objectHeight', '物体心理表征测试', '请想象这件物品。', [
     ['烟灰缸', '矮'], ['月饼', '矮'], ['矿泉水瓶', '高'], ['眼镜盒', '矮'], ['遥控器', '矮'],
     ['平底锅', '矮'], ['邮筒', '高'], ['键盘', '矮'], ['桅杆', '高'], ['热水壶', '高']
-  ], ['高', '矮']),
+  ], heightOptions),
 
-  section('typicalColor', '物体典型颜色回忆测试', '请想象这样东西，说出它通常是什么颜色。', [
+  section('typicalColor', '物体典型颜色回忆测试', '请想象这样东西。', [
     ['番茄酱', '红色'], ['棉花', '白色'], ['消防车', '红色'], ['羽毛球', '白色'], ['树干', '棕色'],
     ['蚂蚁', '黑色'], ['豌豆', '绿色'], ['火腿', '粉色 / 红色'], ['南瓜', '橘色'], ['原味奶茶', '浅褐色']
   ], [], 'text'),
 
-  section('colorCompare', '色彩对比测试（第一部分）', '请想象这两样东西通常的颜色，选出颜色更浅的一个。', [
+  section('colorCompare', '色彩对比测试（第一部分）', '请想象这两样东西通常的颜色。', [
     ['西瓜皮 / 粽叶', '1'], ['向日葵花瓣 / 菠萝肉', '2'], ['原味奶茶 / 美式咖啡', '1'], ['玉米 / 食用油', '1'], ['苹果 / 火龙果', '1'],
     ['茄子 / 洋葱', '2'], ['青椒 / 青提', '2'], ['栗子壳 / 土豆皮', '2'], ['柠檬 / 水仙花', '2'], ['橡木 / 乌木', '1']
   ], ['1', '2']),
 
-  section('colorCompare', '色彩对比测试（第二部分）', '请想象这两样东西，选出颜色更浅的一个。', [
+  section('colorCompare', '色彩对比测试（第二部分）', '请想象这两样东西通常的颜色。', [
     ['灰烬 / 煤', '1'], ['焦油 / 混凝土', '2'], ['铅笔芯 / 黑墨水', '1'], ['牙齿 / 雪', '2'], ['百合 / 竹笋', '1'],
     ['豆腐 / 白蘑菇', '1'], ['紫菜 / 黑木耳', '1'], ['粉笔 / 沙子', '1'], ['大米 / 山药', '2'], ['蔗糖 / 糖粉', '2']
   ], ['1', '2']),
@@ -361,43 +381,43 @@ const imageryA = [
 /* ---------------- BIP B：视觉心理意象 ---------------- */
 
 const imageryB = [
-  section('animalSize', '动物比较测试', '请想象山羊和另一种动物，选出体型更大的一个。', [
+  section('animalSize', '动物比较测试', '请想象这两种动物。', [
     ['山羊 / 老虎', '大'], ['山羊 / 狮子', '大'], ['山羊 / 仓鼠', '小'], ['山羊 / 长颈鹿', '大'], ['山羊 / 麻雀', '小'],
     ['山羊 / 豹子', '大'], ['山羊 / 松鼠', '小'], ['山羊 / 青蛙', '小'], ['山羊 / 犀牛', '大'], ['山羊 / 兔子', '小']
   ], ['大', '小']),
 
-  section('earShape', '物理细节心理表征测试', '请想象这种动物的耳朵，回答是圆的还是尖的。', [
+  section('earShape', '物理细节心理表征测试', '请想象这种动物的耳朵。', [
     ['熊', '圆'], ['河马', '圆'], ['狼', '尖'], ['猫', '尖'], ['熊猫', '圆'], ['山羊', '尖'], ['大猩猩', '圆'], ['大象', '圆'],
     ['驴', '尖'], ['猪', '尖'], ['狐狸', '尖'], ['猎豹', '圆'], ['长颈鹿', '尖'], ['老虎', '圆'], ['马', '尖']
   ], ['圆', '尖']),
 
-  section('objectSize', '物体对比测试', '请想象这两样东西，选出体型或体积更大的一个。', [
+  section('objectSize', '物体对比测试', '请想象这两样东西。', [
     ['苹果手机 / 文具盒', '2'], ['钱包 / 钥匙', '1'], ['西瓜 / 冬瓜', '2'], ['鸭子 / 鸵鸟', '2'], ['汤勺 / 叉子', '1'],
     ['洋葱 / 花椰菜', '2'], ['梨 / 葡萄', '1'], ['苍蝇 / 蚊子', '1'], ['开瓶器 / 擀面杖', '2'], ['鳄鱼 / 蜥蜴', '1']
   ], ['1', '2']),
 
-  section('shapeDiff', '形态辨别测试', '请想象这两样东西，说出能把它们区分开的特征。', [
+  section('shapeDiff', '形态辨别测试', '请想象这两样东西。', [
     ['橙子 / 柑橘', '尺寸'], ['鹦鹉嘴 / 喜鹊嘴', '钩状（鹦鹉）/ 尖状（喜鹊）喙或大小'], ['大白鲨 / 鲸鱼', '尾长或大小'],
     ['板凳 / 扶手椅', '椅子扶手'], ['樱桃 / 树莓', '颜色深浅'], ['基围虾 / 龙虾', '尺寸'], ['鹅掌 / 鸡爪', '有蹼 / 无蹼'],
     ['茄子 / 黄瓜', '尺寸、厚度'], ['棕熊 / 熊猫', '尺寸'], ['蛞蝓 / 蜗牛', '壳']
   ], [], 'text', { scoring: 'manual' }),
 
-  section('objectHeight', '物体心理表征测试', '请想象这件物品，回答它是高的（长条形）还是矮的（扁平形）。', [
+  section('objectHeight', '物体心理表征测试', '请想象这件物品。', [
     ['蜡烛', '高'], ['披萨', '矮'], ['马克杯', '矮'], ['电脑包', '矮'], ['纸巾盒', '矮'],
     ['扫帚', '高'], ['托盘', '矮'], ['尺子', '矮'], ['垃圾桶', '高'], ['苹果手机', '矮']
-  ], ['高', '矮']),
+  ], heightOptions),
 
-  section('typicalColor', '物体典型颜色回忆测试', '请想象这样东西，说出它通常是什么颜色。', [
+  section('typicalColor', '物体典型颜色回忆测试', '请想象这样东西。', [
     ['火烈鸟', '粉色'], ['草地', '绿色'], ['柑桔', '橘色'], ['土地', '棕色'], ['小鸡', '黄色'],
     ['面粉', '白色'], ['草莓', '红色'], ['海豚', '灰色'], ['芝麻', '黑色'], ['西瓜瓤', '红色']
   ], [], 'text'),
 
-  section('colorCompare', '色彩对比测试（第一部分）', '请想象这两样东西通常的颜色，选出颜色更浅的一个。', [
+  section('colorCompare', '色彩对比测试（第一部分）', '请想象这两样东西通常的颜色。', [
     ['红辣椒 / 萝卜', '2'], ['菠菜 / 生菜', '2'], ['番茄 / 水蜜桃', '2'], ['栗子壳 / 核桃壳', '2'], ['香蕉肉 / 黄豆', '1'],
     ['煮熟的龙虾 / 血浆', '1'], ['青苹果 / 牛油果', '1'], ['蜂蜜 / 枫糖浆', '1'], ['巧克力 / 面包', '2'], ['柿子 / 红枣', '1']
   ], ['1', '2']),
 
-  section('colorCompare', '色彩对比测试（第二部分）', '请想象这两样东西，选出颜色更浅的一个。', [
+  section('colorCompare', '色彩对比测试（第二部分）', '请想象这两样东西通常的颜色。', [
     ['灰烬 / 煤', '1'], ['焦油 / 混凝土', '2'], ['铅笔芯 / 黑墨水', '1'], ['牙齿 / 雪', '2'], ['百合 / 竹笋', '1'],
     ['豆腐 / 白蘑菇', '1'], ['紫菜 / 黑木耳', '1'], ['粉笔 / 沙子', '1'], ['大米 / 山药', '2'], ['蔗糖 / 糖粉', '2']
   ], ['1', '2']),
@@ -486,11 +506,11 @@ const perceptionA = [
   withFaces(section('faceName', '名人面孔识别测试（18–30岁）', '请说出图片上这位名人的名字。', [
     ['1', '吴京'], ['2', '岳云鹏'], ['3', '沈腾'], ['4', '成龙'], ['5', '那英'],
     ['6', '韩红'], ['7', '黄晓明'], ['8', '孙俪'], ['9', '赵丽颖'], ['10', '谷爱凌']
-  ], [], 'text', { ageBand: 'young' }), 'assets/faces-a-18'),
+  ], [], 'text', { ageBand: 'young', unseenMark: true }), 'assets/faces-a-18'),
   withFaces(section('faceName', '名人面孔识别测试（31–60岁）', '请说出图片上这位名人的名字。', [
     ['1', '周润发'], ['2', '沈腾'], ['3', '姚明'], ['4', '岳云鹏'], ['5', '吴京'],
     ['6', '成龙'], ['7', '刘翔'], ['8', '吴彦祖'], ['9', '胡歌'], ['10', '周迅']
-  ], [], 'text', { ageBand: 'older' }), 'assets/faces-a-30'),
+  ], [], 'text', { ageBand: 'older', unseenMark: true }), 'assets/faces-a-30'),
   withImages(section('spatial', '空间感知测试', '请判断箭头有没有指向图中的某个黑点。', [
     ['1', '是'], ['2', '是'], ['3', '否'], ['4', '是'], ['5', '否'], ['6', '否'], ['7', '是'], ['8', '是'],
     ['9', '是'], ['10', '是'], ['11', '是'], ['12', '否'], ['13', '否'], ['14', '是'], ['15', '是'], ['16', '否']
@@ -520,11 +540,11 @@ const perceptionB = [
   withFaces(section('faceName', '名人面孔识别测试（18–30岁）', '请说出图片上这位名人的名字。', [
     ['1', '迪丽热巴'], ['2', '郎朗'], ['3', '胡歌'], ['4', '姚明'], ['5', '周迅'],
     ['6', '王力宏'], ['7', '汪峰'], ['8', '宁静'], ['9', '唐嫣'], ['10', '刘翔']
-  ], [], 'text', { ageBand: 'young' }), 'assets/faces-b-18'),
+  ], [], 'text', { ageBand: 'young', unseenMark: true }), 'assets/faces-b-18'),
   withFaces(section('faceName', '名人面孔识别测试（31–60岁）', '请说出图片上这位名人的名字。', [
     ['1', '舒淇'], ['2', '佟大为'], ['3', '汪峰'], ['4', '洪金宝'], ['5', '那英'],
     ['6', '赵丽颖'], ['7', '王力宏'], ['8', '刘烨'], ['9', '李雪健'], ['10', '梁家辉']
-  ], [], 'text', { ageBand: 'older' }), 'assets/faces-b-30'),
+  ], [], 'text', { ageBand: 'older', unseenMark: true }), 'assets/faces-b-30'),
   withImages(section('spatial', '空间感知测试', '请判断箭头有没有指向图中的某个黑点。', [
     ['1', '否'], ['2', '否'], ['3', '否'], ['4', '否'], ['5', '否'], ['6', '是'], ['7', '是'], ['8', '是'],
     ['9', '否'], ['10', '否'], ['11', '是'], ['12', '是'], ['13', '否'], ['14', '否'], ['15', '否'], ['16', '是']

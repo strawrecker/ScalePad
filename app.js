@@ -8,7 +8,7 @@ const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
 const adaptiveStorageKey = 'scalepad_adaptive_v1';
-const buildTag = '2026-10-19g';
+const buildTag = '2026-10-19k';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -70,9 +70,22 @@ const skipReasons = [
 ];
 const skipReasonLabel = (code) => skipReasons.find(([key]) => key === code)?.[1] || '';
 
-/* 医生对口头回答的标记：按钮只显示数字，患者看不出对错 */
-const markLabels = { 1: '正确', 2: '错误', 3: '不确定' };
-const markLegend = Object.entries(markLabels).map(([mark, label]) => `${mark} ${label}`).join('；');
+/* 医生对口头回答的标记：按钮只显示数字，患者看不出对错。
+ * 名人面孔识别只有三个键：1 正确、2 错误、3 没见过。见过但说不出来记 2（错），没见过记 3，这题不计入正确率。
+ * 没见过在记录里存为 mark '4'，和以前的记录保持一致。 */
+const markLabels = { 1: '正确', 2: '错误', 3: '不确定', 4: '没见过' };
+const markLegend = '1 正确；2 错误；3 不确定（不计入正确率）；名人面孔识别里 3 = 没见过（不计入正确率）';
+const marksFor = (question) => (question.unseenMark
+  ? [{ key: '1', mark: '1' }, { key: '2', mark: '2' }, { key: '3', mark: '4', label: '没见过' }]
+  : [{ key: '1', mark: '1' }, { key: '2', mark: '2' }, { key: '3', mark: '3' }]);
+
+/* 名人题里患者没见过的人：识别题医生标 4，比较题患者点“有人没见过”。这题排除，不算对也不算错 */
+function isUnseen(question, record) {
+  return Boolean(record && !record.skipped && (record.mark === '4' || (question?.unseenOption && record.answer === question.unseenOption)));
+}
+
+/* 正确率写成“0.89 (9)”：括号里是计入正确率的题数 */
+const formatRate = (correct, counted) => (counted ? `${(correct / counted).toFixed(2)} (${counted})` : '—');
 
 function planLabel() {
   if (!activePlan.length) return '未选择';
@@ -319,7 +332,7 @@ function sectionStats() {
   activeQuestions.forEach((question, index) => {
     const key = question.planIndex ?? (question.section || '未分区');
     if (!groups.has(key)) {
-      groups.set(key, { code: partCode(order.length), name: question.section || '未分区', source: question.planPreset || '', scoring: question.scoring || 'auto', total: 0, answered: 0, correct: 0, credited: 0, stopped: 0, uncertain: 0, score: 0, maxScore: 0, skipped: 0, skipCodes: {}, durations: [] });
+      groups.set(key, { code: partCode(order.length), name: question.section || '未分区', source: question.planPreset || '', scoring: question.scoring || 'auto', total: 0, answered: 0, correct: 0, credited: 0, stopped: 0, uncertain: 0, unseen: 0, score: 0, maxScore: 0, skipped: 0, skipCodes: {}, durations: [] });
       order.push(key);
     }
     const group = groups.get(key);
@@ -341,6 +354,7 @@ function sectionStats() {
       group.taskRT = record.taskResult?.totalResponseTimeMs;
     } else if (group.scoring === 'record') return;
     else if (record.adaptiveCredited) { group.correct += 1; group.credited += 1; }
+    else if (isUnseen(question, record)) group.unseen += 1;
     else if (record.mark === '3') group.uncertain += 1;
     else if ((group.scoring === 'auto' || record.mark) && recordCorrect(question, record)) group.correct += 1;
   });
@@ -437,14 +451,24 @@ function withDefaultHard(custom, preset) {
       const position = seen.get(question.section) || 0;
       seen.set(question.section, position + 1);
       let base = defaults.get(`${question.section}\n${question.text}`);
-      /* 题库改过题干（如字母构建改回原版表述）：同分区、同位置、答案相同就跟着更新题干 */
+      /* 题库改过题干（如字母构建改回原版表述）：同分区、同位置、答案相同就跟着更新题干和选项。
+       * 答案只是改了写法（高 → 高 / 长）也算相同 */
       if (!base) {
         const candidate = defaultSections.get(question.section)?.[position];
-        if (!candidate || candidate.correct !== question.correct) return question;
+        const sameAnswer = candidate && (candidate.correct === question.correct || normalizeAnswer(candidate.correct).startsWith(normalizeAnswer(question.correct)));
+        if (!sameAnswer) return question;
         base = candidate;
-        question = { ...question, text: base.text, audioText: base.audioText };
+        question = { ...question, text: base.text, audioText: base.audioText, options: [...(base.options || [])], correct: base.correct };
       }
-      return { ...question, display: base.display, ...('hard' in question || !base.hard ? {} : { hard: true }) };
+      /* 编辑器改不了的字段一律跟默认题库走 */
+      question = { ...question };
+      const synced = { display: base.display, sectionIntro: base.sectionIntro };
+      ['unseenOption', 'unseenMark', 'fullPart', 'example'].forEach((key) => {
+        if (key in base) synced[key] = base[key];
+        else delete question[key];
+      });
+      if (base.unseenOption && !question.options.includes(base.unseenOption)) synced.options = [...question.options, base.unseenOption];
+      return { ...question, ...synced, ...('hard' in question || !base.hard ? {} : { hard: true }) };
     })
   };
 }
@@ -646,7 +670,7 @@ $('chooseSaveFolder').onclick = chooseSaveFolder;
 function renderCalibration() {
   const tasks = window.ScalePadTasks;
   $('calibBar').style.width = `${10 * tasks.pxPerCm()}px`;
-  $('calibStatus').textContent = `数轴按 ${tasks.LINE_CM} 厘米绘制（与原程序在 27 寸显示器上一致）`;
+  $('calibStatus').textContent = `数轴按比例铺满屏幕绘制（原程序为 ${tasks.LINE_CM} 厘米）；校准后结果里会记下实际画出的长度`;
 }
 $('calibSave').onclick = () => {
   const measured = Number($('calibInput').value);
@@ -660,8 +684,8 @@ $('calibSave').onclick = () => {
 };
 renderCalibration();
 setupHomeButton();
-$('prevQuestion').onclick = () => navigateTo(nextOpenIndex(questionIndex - 1, -1));
-$('nextQuestion').onclick = () => navigateTo(nextOpenIndex(questionIndex + 1));
+$('prevQuestion').onclick = () => { void goPrevQuestion(); };
+$('nextQuestion').onclick = () => { void goNextQuestion(); };
 $('skipButton').onclick = openSkipMenu;
 $('skipClose').onclick = closeSkipMenu;
 $('skipOverlay').onclick = (event) => { if (event.target === $('skipOverlay')) closeSkipMenu(); };
@@ -716,7 +740,7 @@ async function chooseSaveFolder() {
 
 /* 选中顺序 = 作答顺序；板块（planIndex）用于分区统计和“跳过本部分”。
  * 恢复旧测试时用同样的规则重建题目，保证题号与记录对得上。 */
-function buildPlan(chosen, band, adaptiveMode = false) {
+function buildPlan(chosen, band, adaptiveMode = false, savedPlan = null) {
   const steps = [];
   let questions = [];
   chosen.forEach((preset) => {
@@ -732,8 +756,13 @@ function buildPlan(chosen, band, adaptiveMode = false) {
       });
   });
   if (adaptiveMode) {
-    /* 自适应：可自适应的部分把难题排到前面（各自保持原顺序） */
-    const adaptiveParts = new Set(steps.map((step, index) => index).filter((index) => isAdaptivePart(questions.filter((question) => question.planIndex === index))));
+    /* 自适应：可自适应的部分把难题排到前面（各自保持原顺序）。
+     * 恢复旧测试时按当时记下的部分来排，规则改过也不会让题号错位。 */
+    const stepKey = (step) => `${currentPresetName(step.preset)}\n${renamedPresets[step.section] || step.section}`;
+    const savedAdaptive = Array.isArray(savedPlan) ? new Set(savedPlan.filter((step) => step.adaptive).map(stepKey)) : null;
+    const adaptiveParts = new Set(steps.map((step, index) => index).filter((index) => (savedAdaptive
+      ? savedAdaptive.has(stepKey(steps[index]))
+      : isAdaptivePart(questions.filter((question) => question.planIndex === index)))));
     questions = steps.flatMap((step, index) => {
       const part = questions.filter((question) => question.planIndex === index);
       if (!adaptiveParts.has(index)) return part;
@@ -759,19 +788,19 @@ function alignToSavedPlan(built, savedPlan) {
   return { plan, questions };
 }
 
-/* 有对错的部分，且既有难题又有其他题，才走自适应 */
+/* 有对错、题数多于 5 题的部分才走自适应；名人题（fullPart）无论如何全部做完 */
 function isAdaptivePart(part) {
-  return part.length > 0
-    && part.every((question) => question.scoring === 'auto' || question.scoring === 'manual')
-    && part.some((question) => question.hard) && part.some((question) => !question.hard);
+  return part.length > adaptiveMinItems
+    && part.every((question) => (question.scoring === 'auto' || question.scoring === 'manual') && !question.fullPart);
 }
 
 /* 自适应：只在本部分结果已经很明确时才省略题目，看不出来就全部做完，不考虑用时上限。
- * 每部分至少实际做 5 题后才生效：
- * - 难题（排在前面）全部答对 → 其余题自动计为正确；
- * - 按作答顺序连续答错（含标 3 不确定）4 题 → 本部分剩下的题按 002（太难）自动跳过。
+ * 难题排在前面。按作答顺序：
+ * - 连续答对 5 题 → 本部分剩下的题自动计为正确；
+ * - 连续答错（含标 3 不确定）4 题 → 本部分剩下的题按 002（太难）自动跳过（本部分至少实际做满 5 题才生效）。
  * 不看用时：做得慢但答对的人照常做完。 */
 const adaptiveMinItems = 5;
+const adaptivePassRight = 5;
 const adaptiveStopWrong = 4;
 
 function adaptiveAutoRecord(record) {
@@ -783,29 +812,31 @@ function adaptiveRecordOk(index) {
   return hasAnswer(record) && record.mark !== '3' && recordCorrect(activeQuestions[index], record);
 }
 
-function adaptiveShouldStop(indexes) {
-  // 只看截至最后一道实际作答题、仍在延续的连错；中途答对过就重新计数
-  let streak = 0;
-  let hit = false;
+/* 只看截至最后一道实际作答题、仍在延续的连对 / 连错；中间隔着没做的题或自动记录就重新计数 */
+function adaptiveVerdict(indexes) {
+  let right = 0;
+  let wrong = 0;
+  let pass = false;
+  let stop = false;
+  let real = 0;
   for (const index of indexes) {
     const record = answerByQuestion[index];
-    if (!record || adaptiveAutoRecord(record)) { streak = 0; continue; }
-    streak = adaptiveRecordOk(index) ? 0 : streak + 1;
-    hit = streak >= adaptiveStopWrong;
+    if (!record || adaptiveAutoRecord(record)) { right = 0; wrong = 0; continue; }
+    real += 1;
+    if (adaptiveRecordOk(index)) { right += 1; wrong = 0; } else { wrong += 1; right = 0; }
+    pass = right >= adaptivePassRight;
+    stop = wrong >= adaptiveStopWrong;
   }
-  return hit;
+  const enough = real >= Math.min(adaptiveMinItems, indexes.length);
+  return { passed: enough && pass, stopped: enough && stop };
 }
 
 /* 条件成立时写入自动记录；之后改了答案导致条件不再成立，撤销这些自动记录，题目重新变成待答 */
 async function applyAdaptive(planIndex) {
   if (!activePlan[planIndex]?.adaptive) return true;
   const indexes = activeQuestions.map((question, index) => index).filter((index) => activeQuestions[index].planIndex === planIndex);
-  const hard = indexes.filter((index) => activeQuestions[index].hard);
-  const rest = indexes.filter((index) => !activeQuestions[index].hard);
-  const realDone = indexes.filter((index) => answerByQuestion[index] && !adaptiveAutoRecord(answerByQuestion[index])).length;
-  const enough = realDone >= Math.min(adaptiveMinItems, indexes.length);
-  const passed = enough && hard.every((index) => answerByQuestion[index]) && hard.every(adaptiveRecordOk);
-  const stopped = enough && !passed && adaptiveShouldStop(indexes);
+  if (indexes.some((index) => activeQuestions[index].fullPart)) return true;
+  const { passed, stopped } = adaptiveVerdict(indexes);
   const time = new Date().toISOString();
   const writes = [];
   const revoke = (index) => writes.push(writeEvent({ type: 'adaptive_revoked', ...questionFields(activeQuestions[index], index), index, time }).then((saved) => {
@@ -822,7 +853,7 @@ async function applyAdaptive(planIndex) {
       }));
     } else if (!stopped && record?.adaptiveStopped) revoke(index);
   });
-  rest.forEach((index) => {
+  indexes.forEach((index) => {
     const record = answerByQuestion[index];
     if (passed && !record) {
       const credited = { ...questionFields(activeQuestions[index], index), index, answer: '', adaptiveCredited: true, time };
@@ -913,6 +944,7 @@ async function startSession() {
   answers = [];
   answerByQuestion = {};
   seenGates = new Set();
+  reopenGate = null;
   /* 不熟悉英文字母：字母相关题直接记为 003 跳过，顺序作答时越过 */
   if (lettersFamiliar === 'no') {
     const letterIndexes = activeQuestions.map((question, index) => (question.needsLetters ? index : -1)).filter((index) => index >= 0);
@@ -1124,10 +1156,10 @@ function renderEditorForm() {
   });
 }
 
+/* 部分名只用小字放在顶部“部分”按钮上，屏幕留给题目 */
 function renderBand(question) {
-  $('sectionName').textContent = question.section || planLabel();
-  $('sectionMeta').textContent = `${partCode(question.planIndex)} 部分 · ${question.planPreset}`;
   $('partsButton').textContent = `${partCode(question.planIndex)} 部分 ▾`;
+  $('partsButton').title = `${question.section || ''}（${question.planPreset || ''}）`;
   /* 指导语下面再用一句话直接告诉患者要做什么 */
   $('sectionIntro').textContent = '';
   if (question.sectionIntro) {
@@ -1148,27 +1180,49 @@ function renderBand(question) {
   $('sectionIntro').classList.toggle('hidden', !question.sectionIntro && !action);
 }
 
-/* 已看过示例 / 交接提示的部分（本次打开测试期间） */
+/* 已看过示例 / 交接提示的部分。看过就不再自动出现，从本部分第一题往前翻（上一题 / W）可以翻回来再看 */
 let seenGates = new Set();
+let reopenGate = null;
+let gateTimer = null;
+const exampleReadMs = 5000;
+
+const doctorRunQuestion = (question) => Boolean(question && (question.delivery === 'audio' || question.response === 'text'));
+
+/* 本部分开头要不要先放一页：医生读题 → 患者口答时提示把屏幕转向患者；医生部分 → 患者部分时提示交给患者；空间、时钟题放示例 */
+function gateContent(index) {
+  const question = activeQuestions[index];
+  if (!question || activeQuestions.findIndex((item) => item.planIndex === question.planIndex) !== index) return null;
+  const previous = activeQuestions[index - 1];
+  const handoff = Boolean(previous && doctorRunQuestion(previous) && !doctorRunQuestion(question) && question.response !== 'task');
+  const showPatient = Boolean(previous && previous.delivery === 'audio' && question.delivery !== 'audio' && question.response === 'text');
+  const example = question.example ? window.scalePadExamples?.[question.example] : null;
+  return handoff || showPatient || example ? { handoff, showPatient, example } : null;
+}
 
 function gateFor(index) {
   const question = activeQuestions[index];
-  if (!question || answerByQuestion[index] || seenGates.has(question.planIndex)) return null;
-  if (activeQuestions.findIndex((item) => item.planIndex === question.planIndex) !== index) return null;
-  const previous = activeQuestions[index - 1];
-  const handoff = Boolean(previous && previous.delivery === 'audio' && question.delivery !== 'audio');
-  const example = question.example ? window.scalePadExamples?.[question.example] : null;
-  return handoff || example ? { handoff, example } : null;
+  if (!question) return null;
+  if (reopenGate !== question.planIndex && (answerByQuestion[index] || seenGates.has(question.planIndex))) return null;
+  return gateContent(index);
+}
+
+function dismissGate(question, gate) {
+  seenGates.add(question.planIndex);
+  reopenGate = null;
+  if (sessionId && storageReady) void writeEvent({ type: 'gate_dismissed', ...questionFields(question), handoff: gate.handoff, example: question.example || null });
+  renderQuestion();
 }
 
 function renderGate(question, gate) {
   $('quiz').classList.remove('media-question');
   const card = $('gateCard');
   card.innerHTML = '';
-  if (gate.handoff) {
+  if (gate.handoff || gate.showPatient) {
     const handoff = document.createElement('div');
     handoff.className = 'gate-handoff';
-    handoff.innerHTML = '<strong>医生部分已完成</strong><span>请把设备交给患者，接下来的题由患者自己点按钮作答</span>';
+    handoff.innerHTML = gate.handoff
+      ? '<strong>医生部分已完成</strong><span>请把设备交给患者，接下来的题由患者自己点按钮作答</span>'
+      : '<strong>医生读题部分已完成</strong><span>请把屏幕转向患者：患者看屏幕大声说出答案，医生在下方记录</span>';
     card.append(handoff);
   }
   if (gate.example) {
@@ -1176,8 +1230,16 @@ function renderGate(question, gate) {
     title.textContent = `${gate.example.title.replace('示例：', '示例（不计分）：')}`;
     const panels = document.createElement('div');
     panels.className = `gate-panels n${gate.example.panels.length}`;
+    /* 每张示例图上方标出答案（是 / 否 等），一眼看出哪张是“是”、哪张是“否” */
     gate.example.panels.forEach((panel) => {
       const figure = document.createElement('figure');
+      if (panel.tone) figure.className = `tone-${panel.tone}`;
+      if (panel.answer || gate.example.panels.some((item) => item.answer)) {
+        const badge = document.createElement('span');
+        badge.className = `answer-badge${panel.answer ? '' : ' spacer'}`;
+        badge.textContent = !panel.answer ? '—' : panel.answer.length <= 1 ? `选“${panel.answer}”` : panel.answer;
+        figure.append(badge);
+      }
       const image = document.createElement('img');
       image.src = panel.image;
       image.alt = '示例图';
@@ -1199,17 +1261,31 @@ function renderGate(question, gate) {
   start.type = 'button';
   start.className = 'gate-start';
   start.textContent = gate.example ? '看懂了，开始答题' : '开始';
-  start.onclick = () => {
-    seenGates.add(question.planIndex);
-    if (sessionId && storageReady) void writeEvent({ type: 'gate_dismissed', ...questionFields(question), handoff: gate.handoff, example: question.example || null });
-    renderQuestion();
-  };
+  start.onclick = () => dismissGate(question, gate);
   card.append(start);
+  /* 示例至少看 5 秒，按钮才能点 */
+  if (gate.example) {
+    const readyAt = Date.now() + exampleReadMs;
+    start.disabled = true;
+    const tick = () => {
+      const left = Math.ceil((readyAt - Date.now()) / 1000);
+      if (left > 0) {
+        start.textContent = `请先看示例（${left} 秒）`;
+        gateTimer = window.setTimeout(tick, 200);
+        return;
+      }
+      gateTimer = null;
+      start.disabled = false;
+      start.textContent = '看懂了，开始答题';
+    };
+    tick();
+  }
 }
 
 function introAction(question) {
   if (question.response === 'task') return '';
   if (question.delivery === 'audio') return '请听医生读题，大声说出答案';
+  if (question.unseenMark) return '请说出这位名人的名字，没见过就说“没见过”';
   if (question.response === 'text') return '请大声说出答案，不用点屏幕';
   return '请点下面的按钮作答';
 }
@@ -1217,17 +1293,20 @@ function introAction(question) {
 function renderQuestion() {
   if (advanceTimer) window.clearTimeout(advanceTimer);
   advanceTimer = null;
+  if (gateTimer) window.clearTimeout(gateTimer);
+  gateTimer = null;
   clearSequenceTimer();
   pendingAnswer = null;
   const question = activeQuestions[questionIndex];
   const options = question.options || [];
   const savedAnswer = answerByQuestion[questionIndex];
   const audioOnly = question.delivery === 'audio';
-  $('prevQuestion').disabled = nextOpenIndex(questionIndex - 1, -1) < 0;
-  $('nextQuestion').disabled = nextOpenIndex(questionIndex + 1) >= activeQuestions.length;
   renderBand(question);
   /* 部分开头的示例 / 交接提示：看完点“开始”才出题，计时从出题算起 */
+  if (reopenGate !== null && firstIndexOfPart(reopenGate) !== questionIndex) reopenGate = null;
   const gate = gateFor(questionIndex);
+  $('prevQuestion').disabled = nextOpenIndex(questionIndex - 1, -1) < 0 && (Boolean(gate) || !gateContent(questionIndex));
+  $('nextQuestion').disabled = !gate && nextOpenIndex(questionIndex + 1) >= activeQuestions.length;
   $('quiz').classList.toggle('gated', Boolean(gate));
   if (gate) {
     stopSpeaking();
@@ -1250,9 +1329,8 @@ function renderQuestion() {
   renderDoctorScript(question);
   const skipped = savedAnswer?.skipped;
   const credited = savedAnswer?.adaptiveCredited;
-  $('skipTag').textContent = skipped ? `已跳过 · ${savedAnswer.skipCode} ${savedAnswer.skipReason}（直接作答可覆盖）`
-    : credited ? '本部分难题全对，本题已自动计为正确（直接作答可覆盖）' : '';
-  if (savedAnswer?.adaptiveStopped) $('skipTag').textContent = '本部分连续答错，本题已自动跳过（002，直接作答可覆盖）';
+  /* 只给医生看代码，不写原因，患者看不出为什么跳过（代码含义在首页和结果页） */
+  $('skipTag').textContent = skipped ? `已记录 ${savedAnswer.skipCode}` : credited ? '已记录 A' : '';
   $('skipTag').classList.toggle('hidden', !skipped && !credited);
   stopSpeaking();
   $('questionMedia').innerHTML = '';
@@ -1272,6 +1350,7 @@ function renderQuestion() {
   $('choices').classList.toggle('many', question.response !== 'text' && options.length > 2);
   $('choices').classList.toggle('long-options', options.some((option) => option.length > 5));
   $('choices').dataset.count = options.length;
+  $('choices').classList.toggle('has-unseen', Boolean(question.unseenOption));
   renderBulkFill(question);
 
   if (question.response === 'task') {
@@ -1283,12 +1362,12 @@ function renderQuestion() {
     /* 患者只看到“请说出答案”；下方是明显分开的医生记录区，可用键盘 1/2/3 标记，不用抢鼠标 */
     const hint = document.createElement('p');
     hint.className = 'speak-hint';
-    hint.textContent = '请说出你的答案';
+    hint.textContent = question.unseenMark ? '请说出这位名人的名字，没见过就说“没见过”' : '请说出你的答案';
     const panel = document.createElement('div');
     panel.className = 'doctor-panel';
     const panelTitle = document.createElement('div');
     panelTitle.className = 'doctor-title';
-    panelTitle.innerHTML = '<span>医生记录 · 患者无需操作</span><em>键盘 1 / 2 / 3</em>';
+    panelTitle.innerHTML = `<span>医生记录 · 患者无需操作</span><em>键盘 1 / 2 / 3${question.unseenMark ? '（3 = 没见过）' : ''} · 长按 Q 或空格跳过</em>`;
     const input = document.createElement('textarea');
     input.className = 'free-response-input';
     input.placeholder = '回答内容（可不填）';
@@ -1302,11 +1381,12 @@ function renderQuestion() {
     /* 医生按 1/2/3 标记对错后进入下一题；回答文字可记可不记 */
     const marks = document.createElement('div');
     marks.className = 'mark-row';
-    Object.keys(markLabels).forEach((mark) => {
+    marksFor(question).forEach(({ key, mark, label }) => {
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'choice mark';
-      button.textContent = mark;
+      button.className = `choice mark${label ? ' labeled' : ''}`;
+      button.dataset.key = key;
+      button.textContent = label ? `${key} ${label}` : key;
       if (savedAnswer?.mark === mark) button.classList.add('selected');
       button.onclick = () => {
         marks.querySelectorAll('.mark').forEach((item) => item.classList.remove('selected'));
@@ -1323,7 +1403,7 @@ function renderQuestion() {
 
   options.forEach((option) => {
     const button = document.createElement('button');
-    button.className = 'choice';
+    button.className = `choice${option === question.unseenOption ? ' unseen-option' : ''}`;
     button.dataset.option = option;
     button.textContent = option;
     if (savedAnswer && savedAnswer.answer === option) button.classList.add('selected');
@@ -1359,7 +1439,7 @@ async function runTaskQuestion(question) {
   const index = questionIndex;
   const tasks = window.ScalePadTasks;
   const fit = tasks.layout();
-  if (fit.scaled && !window.confirm(`当前屏幕放不下原尺寸（数轴应为 ${tasks.LINE_CM} 厘米），将缩小到 ${fit.lineCm.toFixed(1)} 厘米。\n\n建议把 iPad 横过来，或在电脑上把浏览器窗口最大化。仍要继续吗？`)) return;
+  if (fit.scaled && !window.confirm(`当前屏幕太小，数轴只有 ${fit.lineCm.toFixed(1)} 厘米（原程序 ${tasks.LINE_CM} 厘米）。\n\n建议把 iPad 横过来，或在电脑上把浏览器窗口最大化。仍要继续吗？`)) return;
   stopSpeaking();
   cancelPendingAnswer();
   setQuizStatus('');
@@ -1375,6 +1455,17 @@ async function runTaskQuestion(question) {
     const reason = error?.message || String(error);
     void writeEvent({ type: 'task_aborted', ...fields, reason });
     renderQuestion();
+    /* 任务里长按“跳过”：回到本题后直接打开跳过原因，选完记为跳过 */
+    /* 开始页上按“返回”：回到本题，什么都不记 */
+    if (reason === 'back') {
+      setQuizStatus('');
+      return;
+    }
+    if (reason === 'skipped') {
+      setQuizStatus('');
+      openSkipMenu();
+      return;
+    }
     setQuizStatus(reason === 'aborted' ? '任务已中止，本题没有记录结果，可重新开始或跳过。' : `任务出错：${reason}`);
     return;
   }
@@ -1705,10 +1796,12 @@ function renderSkipMenu() {
     item.className = 'part-item';
     const badge = document.createElement('span');
     badge.className = 'code skip-code';
-    badge.textContent = code;
+    badge.textContent = String(skipReasons.findIndex(([key]) => key === code) + 1);
+    /* 菜单只显示代码，不写原因，患者看不出为什么跳过 */
     const name = document.createElement('span');
     name.className = 'name';
-    name.textContent = label;
+    name.textContent = code;
+    item.title = label;
     item.append(badge, name);
     item.onclick = () => { void skipQuestions(code); };
     list.append(item);
@@ -1727,13 +1820,14 @@ function closeSkipMenu() {
 
 const formatSkipCodes = (codes) => Object.entries(codes).sort().map(([code, count]) => `${code}×${count}`).join('、');
 
-async function jumpTo(index) {
+async function jumpTo(index, gatePart = null) {
   if (advanceTimer) window.clearTimeout(advanceTimer);
   advanceTimer = null;
   if (pendingAnswer) {
     const saved = await pendingAnswer.selectionEvent;
     if (!saved || !(await commitPendingAnswer())) return;
   }
+  reopenGate = gatePart;
   if (index >= activeQuestions.length) {
     await finish();
     return;
@@ -1745,6 +1839,45 @@ async function jumpTo(index) {
 async function navigateTo(index) {
   if (index < 0 || index >= activeQuestions.length) return;
   await jumpTo(index);
+}
+
+const isGated = () => $('quiz').classList.contains('gated');
+
+/* 上一题：在本部分第一题时先翻回本部分开头的示例 / 提示页，再往前才是上一部分的最后一题 */
+async function goPrevQuestion() {
+  const question = activeQuestions[questionIndex];
+  if (!isGated() && question && gateContent(questionIndex)) {
+    await jumpTo(questionIndex, question.planIndex);
+    return;
+  }
+  await navigateTo(nextOpenIndex(questionIndex - 1, -1));
+}
+
+/* 下一题：示例 / 提示页上相当于点“开始”（示例没看满 5 秒时不动） */
+function startGate() {
+  const start = document.querySelector('#gateCard .gate-start');
+  if (start?.disabled) showKeyHint('请先看完示例');
+  else start?.click();
+}
+
+async function goNextQuestion() {
+  if (isGated()) {
+    startGate();
+    return;
+  }
+  await navigateTo(nextOpenIndex(questionIndex + 1));
+}
+
+/* 上一部分 / 下一部分：跳到那一部分的第一题（没看过的示例页照常先出现） */
+async function goPart(step) {
+  const current = activeQuestions[questionIndex]?.planIndex ?? 0;
+  const target = current + step;
+  if (target < 0 || target >= activePlan.length) {
+    showKeyHint(step < 0 ? '已经是第一部分' : '已经是最后一部分');
+    return;
+  }
+  const index = firstIndexOfPart(target);
+  if (index >= 0) await jumpTo(index);
 }
 
 /* 部分代号：A、B、C…… 用来代替具体题号 */
@@ -1979,7 +2112,7 @@ async function loadSession(id) {
     return false;
   }
   const chosen = [...new Set(record.plan.map((step) => currentPresetName(step.preset)))].map((name) => presets.find((preset) => preset.name === name));
-  const built = chosen.every(Boolean) ? alignToSavedPlan(buildPlan(chosen, record.ageBand, Boolean(record.adaptive)), record.plan) : null;
+  const built = chosen.every(Boolean) ? alignToSavedPlan(buildPlan(chosen, record.ageBand, Boolean(record.adaptive), record.plan), record.plan) : null;
   if (!built || built.questions.length !== record.questionCount) {
     window.alert('这次测试用到的问卷已被修改或删除，题目对不上，无法恢复。原始记录仍保存在本机。');
     return false;
@@ -2008,7 +2141,9 @@ async function loadSession(id) {
   events.forEach(({ id: eventId, sessionId: owner, sequence, recordedAt, type, ...fields }) => {
     if (type === 'answer_committed' || type === 'question_skipped' || type === 'adaptive_credited') answerByQuestion[fields.index] = fields;
     else if (type === 'adaptive_revoked') delete answerByQuestion[fields.index];
+    else if (type === 'gate_dismissed' && activeQuestions[fields.questionIndex]) seenGates.add(activeQuestions[fields.questionIndex].planIndex);
   });
+  reopenGate = null;
   rebuildAnswers();
   return true;
 }
@@ -2175,8 +2310,8 @@ function renderSectionResults() {
   const stats = sectionStats();
   const rows = stats.map((group) => {
     const unanswered = group.total - group.answered - group.skipped;
-    const skipNote = [group.credited + group.stopped ? `自适应省略 ${group.credited + group.stopped} 题${group.savedMs ? `，约省 ${formatMinutes(group.savedMs)}` : ''}` : '', group.credited ? `难题全对，${group.credited} 题自动计为正确` : '', group.stopped ? `连续答错，${group.stopped} 题自动跳过` : '', group.skipped ? `跳过 ${group.skipped}（${formatSkipCodes(group.skipCodes)}）` : '', unanswered ? `未作答 ${unanswered}` : '', group.uncertain ? `标记 3（不确定）${group.uncertain}，不计入正确率` : ''].filter(Boolean).join('<br>');
-    const judged = group.answered - group.uncertain;
+    const skipNote = [group.credited + group.stopped ? `自适应省略 ${group.credited + group.stopped} 题${group.savedMs ? `，约省 ${formatMinutes(group.savedMs)}` : ''}` : '', group.credited ? `连续答对 ${adaptivePassRight} 题，${group.credited} 题自动计为正确` : '', group.stopped ? `连续答错，${group.stopped} 题自动跳过` : '', group.skipped ? `跳过 ${group.skipped}（${formatSkipCodes(group.skipCodes)}）` : '', unanswered ? `未作答 ${unanswered}` : '', group.uncertain ? `标记 3（不确定）${group.uncertain}，不计入正确率` : '', group.unseen ? `没见过 ${group.unseen}，不计入正确率` : ''].filter(Boolean).join('<br>');
+    const judged = group.answered - group.uncertain - group.unseen;
     let result;
     let rate;
     if (group.scoring === 'scale') {
@@ -2190,24 +2325,24 @@ function renderSectionResults() {
       rate = group.answered ? `总反应时间 ${Math.round(group.taskRT)} 毫秒` : '—';
     } else {
       result = group.answered ? `${group.correct}/${judged} (${group.total})` : `${group.skipped === group.total ? '全部跳过' : '未作答'} (${group.total})`;
-      rate = judged ? `${Math.round((group.correct / judged) * 100)}%` : '—';
+      rate = formatRate(group.correct, judged);
     }
     return `<tr><td>${escapeHtml(group.code)} · ${escapeHtml(group.name)}<small>${escapeHtml(group.source)}</small></td><td class="result">${escapeHtml(result)}</td><td class="rate">${escapeHtml(rate)}</td><td class="skip">${skipNote}</td></tr>`;
   });
   const scored = stats.filter((group) => !['scale', 'record', 'task'].includes(group.scoring));
   const totals = scored.reduce((sum, group) => ({
     correct: sum.correct + group.correct,
-    answered: sum.answered + group.answered - group.uncertain,
+    answered: sum.answered + group.answered - group.uncertain - group.unseen,
     total: sum.total + group.total
   }), { correct: 0, answered: 0, total: 0 });
   const totalRow = scored.length
-    ? `<tr class="total"><td>合计（不含量表）</td><td class="result">${totals.correct}/${totals.answered} (${totals.total})</td><td class="rate">${totals.answered ? `${Math.round((totals.correct / totals.answered) * 100)}%` : '—'}</td><td class="skip"></td></tr>`
+    ? `<tr class="total"><td>合计（不含量表）</td><td class="result">${totals.correct}/${totals.answered} (${totals.total})</td><td class="rate">${formatRate(totals.correct, totals.answered)}</td><td class="skip"></td></tr>`
     : '';
   const omitted = stats.reduce((sum, group) => sum + group.credited + group.stopped, 0);
   const savedMs = stats.reduce((sum, group) => sum + group.savedMs, 0);
-  const adaptiveNote = activePlan.some((step) => step.adaptive) ? `<strong>自适应共省略 ${omitted} 题${savedMs ? `，约省 ${formatMinutes(savedMs)}` : ''}。</strong>只在结果明确时省略题目，看不出来就全部做完。每部分至少做 ${adaptiveMinItems} 题、先做难题：难题全对则其余题自动计为正确；连续答错 ${adaptiveStopWrong} 题则其余题按 002 自动跳过（不看用时）。“省时”按本部分实际作答的中位用时估算。<br>` : '';
+  const adaptiveNote = activePlan.some((step) => step.adaptive) ? `<strong>自适应共省略 ${omitted} 题${savedMs ? `，约省 ${formatMinutes(savedMs)}` : ''}。</strong>只在结果明确时省略题目，看不出来就全部做完；名人题全部做完。每部分先做难题：连续答对 ${adaptivePassRight} 题则其余题自动计为正确；至少做满 ${adaptiveMinItems} 题后连续答错 ${adaptiveStopWrong} 题则其余题按 002 自动跳过（不看用时）。“省时”按本部分实际作答的中位用时估算。<br>` : '';
   const legend = `<p class="muted">${adaptiveNote}医生标记：${markLegend}<br>跳过代码：${skipReasons.map(([code, label]) => `${code} ${label}`).join('；')}</p>`;
-  $('sectionResults').innerHTML = `<table class="section-table"><thead><tr><th>分区</th><th>答对/已答（总题数）</th><th>正确率</th><th>跳过（代码×题数）</th></tr></thead><tbody>${rows.join('')}${totalRow}</tbody></table>${legend}`;
+  $('sectionResults').innerHTML = `<table class="section-table"><thead><tr><th>分区</th><th>答对/计入（总题数）</th><th>正确率（计入题数）</th><th>跳过（代码×题数）</th></tr></thead><tbody>${rows.join('')}${totalRow}</tbody></table>${legend}`;
 }
 
 function renderDashboard() {
@@ -2345,7 +2480,7 @@ async function download(extension, type) {
     if (answer.adaptiveCredited) return ['1', '', question.correct ?? ''];
     if (question.scoring === 'scale') return ['', String(scaleScore(question, answer.answer)), ''];
     if (question.scoring === 'record' || question.scoring === 'task') return ['', '', ''];
-    if (answer.mark === '3' || (question.scoring === 'manual' && !answer.mark)) return ['', '', question.correct ?? ''];
+    if (answer.mark === '3' || isUnseen(question, answer) || (question.scoring === 'manual' && !answer.mark)) return ['', '', question.correct ?? ''];
     return [recordCorrect(question, answer) ? '1' : '0', '', question.correct ?? ''];
   };
   const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
@@ -2354,12 +2489,12 @@ async function download(extension, type) {
     return [patient, patientName, patientGender, patientAge, patientOccupation, ageBand, education, lettersFamiliar, planLabel(), answer.questionIndex, answer.section, answer.question, answer.answer, answer.mark, answer.markLabel, expected, correct, score,
       answer.skipCode, answer.skipReason, answer.time, answer.answerDurationMs, answer.confirmationDelayMs, answer.reactionTimeMs, answer.answerChanges, answer.audioPlayCount, answer.adaptiveCredited ? '1' : '', answer.adaptiveStopped ? '1' : '', activeQuestions[answer.questionIndex]?.hard ? '1' : ''].map(quote).join(',');
   });
-  const statRows = stats.map((group) => [`${group.code} 部分`, group.name, group.scoring, group.correct, group.answered, group.uncertain, group.skipped, formatSkipCodes(group.skipCodes), group.total, group.score, group.credited, group.stopped].map(quote).join(','));
+  const statRows = stats.map((group) => [`${group.code} 部分`, group.name, group.scoring, group.correct, group.answered, group.uncertain, group.unseen, group.skipped, formatSkipCodes(group.skipCodes), group.total, group.score, group.credited, group.stopped].map(quote).join(','));
   const content = type === 'json'
     ? JSON.stringify(data, null, 2)
     : '\uFEFFpatient,name,gender,age,occupation,ageBand,education,lettersFamiliar,preset,questionIndex,section,question,answer,mark,markLabel,expected,correct,score,skipCode,skipReason,time,answerDurationMs,confirmationDelayMs,reactionTimeMs,answerChanges,audioPlayCount,adaptiveCredited,adaptiveStopped,hardItem\n'
       + answerRows.join('\n')
-      + '\n\n类型,分区,评分方式,答对,已答,标记不确定,跳过,跳过代码,总题数,量表总分,自适应计为正确,自适应停止跳过\n'
+      + '\n\n类型,分区,评分方式,答对,已答,标记不确定,没见过,跳过,跳过代码,总题数,量表总分,自适应计为正确,自适应停止跳过\n'
       + statRows.join('\n');
   const filename = `${safeFilePart(patient)}_${sessionId || Date.now()}.${extension}`;
   const mime = type === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8';
@@ -2477,24 +2612,105 @@ $('again').onclick = () => { void startNextPatient(); };
 $('resumeQuiz').onclick = () => { void resumeQuiz(); };
 void renderRecentSessions();
 
-/* 医生用键盘标记口答题：1 正确、2 错误、3 不确定（主键盘或小键盘）。
- * 光标在回答框里时数字照常输入，按 Esc 或点空白处离开回答框后再按数字。 */
-document.addEventListener('keydown', (event) => {
-  if ($('quiz').classList.contains('hidden') || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
-  if (!$('partsOverlay').classList.contains('hidden') || !$('skipOverlay').classList.contains('hidden')) return;
-  if ($('quiz').classList.contains('gated')) {
-    if (event.key === 'Enter' && !(event.target instanceof HTMLButtonElement)) { event.preventDefault(); document.querySelector('#gateCard .gate-start')?.click(); }
-    return;
+/* 医生用键盘操作：
+ * A 上一题、D 下一题、W 上一部分、S 下一部分（← → 也可以上一题 / 下一题）：按一下就切换，可以快速翻题；
+ * 1 / 2 / 3 标记对错：按一下就生效（名人面孔识别里 3 = 没见过），主键盘或小键盘都行；
+ * 长按 Q 或空格（约 0.6 秒）打开“跳过”，再按 1–6 选代码（Esc 关闭）——会记入结果，所以要长按防误触；
+ * 示例 / 提示页上 Enter 或 D 开始（示例要看满 5 秒）。
+ * 光标在回答框里时按键照常输入，按 Esc 或点空白处离开回答框后再按。 */
+const keyHoldMs = 600;
+const navKeys = {
+  KeyA: () => goPrevQuestion(),
+  ArrowLeft: () => goPrevQuestion(),
+  KeyD: () => goNextQuestion(),
+  ArrowRight: () => goNextQuestion(),
+  KeyW: () => goPart(-1),
+  KeyS: () => goPart(1)
+};
+const skipKeys = new Set(['KeyQ', 'Space']);
+const digitKey = (code) => (/^(Digit|Numpad)([1-9])$/.exec(code) || [])[2] || '';
+let keyHold = null;
+let keyHintTimer = null;
+
+function showKeyHint(text, holding = false) {
+  const hint = $('keyHint');
+  hint.textContent = text;
+  hint.classList.remove('hidden');
+  hint.classList.toggle('holding', holding);
+  if (holding) {
+    hint.style.setProperty('--hold-ms', `${keyHoldMs}ms`);
+    void hint.offsetWidth;
   }
+  if (keyHintTimer) window.clearTimeout(keyHintTimer);
+  keyHintTimer = holding ? null : window.setTimeout(() => hint.classList.add('hidden'), 1400);
+}
+
+function cancelKeyHold(message) {
+  if (!keyHold) return;
+  window.clearTimeout(keyHold.timer);
+  keyHold = null;
+  if (message) showKeyHint(message);
+  else $('keyHint').classList.add('hidden');
+}
+
+/* 跳过菜单打开时：1–6 选原因，Esc 关闭 */
+function skipMenuKey(event) {
+  if (event.key === 'Escape') { closeSkipMenu(); return; }
+  const digit = digitKey(event.code);
+  const reason = digit ? skipReasons[Number(digit) - 1] : null;
+  if (!reason || event.repeat) return;
+  event.preventDefault();
+  void skipQuestions(reason[0]);
+}
+
+document.addEventListener('keydown', (event) => {
+  if ($('quiz').classList.contains('hidden') || document.querySelector('.task-stage') || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (!$('skipOverlay').classList.contains('hidden')) { skipMenuKey(event); return; }
+  if (!$('partsOverlay').classList.contains('hidden')) return;
   const target = event.target;
   if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
     if (event.key === 'Escape') target.blur();
     return;
   }
-  const mark = { Digit1: '1', Digit2: '2', Digit3: '3', Numpad1: '1', Numpad2: '2', Numpad3: '3' }[event.code];
-  if (!mark) return;
-  const button = [...document.querySelectorAll('#choices .mark')].find((item) => item.textContent === mark);
+  if (isGated() && event.key === 'Enter') {
+    event.preventDefault();
+    if (!event.repeat) startGate();
+    return;
+  }
+  if (navKeys[event.code]) {
+    event.preventDefault();
+    if (!event.repeat) void navKeys[event.code]();
+    return;
+  }
+  if (skipKeys.has(event.code)) {
+    event.preventDefault();
+    if (event.repeat || keyHold || isGated()) return;
+    showKeyHint(`按住 ${event.code === 'Space' ? '空格' : 'Q'}：跳过…`, true);
+    keyHold = {
+      code: event.code,
+      timer: window.setTimeout(() => {
+        keyHold = null;
+        $('keyHint').classList.add('hidden');
+        openSkipMenu();
+      }, keyHoldMs)
+    };
+    return;
+  }
+  const digit = digitKey(event.code);
+  if (!digit || isGated()) return;
+  /* 名人比较题：3 = 有人没见过 */
+  const button = document.querySelector(`#choices .mark[data-key="${digit}"]`) || (digit === '3' ? document.querySelector('#choices .unseen-option') : null);
   if (!button) return;
   event.preventDefault();
-  button.click();
+  if (!event.repeat) button.click();
 });
+
+/* 空格松开时浏览器会“点”一下当前聚焦的按钮，这里拦掉 */
+document.addEventListener('keyup', (event) => {
+  if (skipKeys.has(event.code) && !$('quiz').classList.contains('hidden') && !document.querySelector('.task-stage')) {
+    const target = event.target;
+    if (!(target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) event.preventDefault();
+  }
+  if (keyHold && keyHold.code === event.code) cancelKeyHold('跳过要长按才生效');
+});
+window.addEventListener('blur', () => cancelKeyHold());

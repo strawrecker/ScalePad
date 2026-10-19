@@ -17,11 +17,16 @@ def hand(cx, cy, angle, length, width):
     return (f'<line x1="{cx}" y1="{cy}" x2="{bx:.1f}" y2="{by:.1f}" stroke="#000" stroke-width="{width}" stroke-linecap="round"/>'
             f'<polygon points="{head}" fill="#000"/>')
 
-def clock(h, m):
+def clock(h, m, divider=True):
     cx = cy = 250
-    body = f'<line x1="{cx}" y1="22" x2="{cx}" y2="478" stroke="{GRAY}" stroke-width="4" stroke-dasharray="14 12"/>'
-    body += f'<text x="40" y="52" font-size="44" fill="#486581" text-anchor="middle" font-family="sans-serif">左</text>'
-    body += f'<text x="460" y="52" font-size="44" fill="#486581" text-anchor="middle" font-family="sans-serif">右</text>'
+    if not divider:
+        # 想象中的钟面：不画分界线，淡蓝底色表示“在脑海里”
+        body = f'<circle cx="{cx}" cy="{cy}" r="245" fill="#e3eefb"/>'
+    else:
+        body = f'<line x1="{cx}" y1="22" x2="{cx}" y2="478" stroke="{GRAY}" stroke-width="4" stroke-dasharray="14 12"/>'
+    if divider:
+        body += f'<text x="40" y="52" font-size="44" fill="#486581" text-anchor="middle" font-family="sans-serif">左</text>'
+        body += f'<text x="460" y="52" font-size="44" fill="#486581" text-anchor="middle" font-family="sans-serif">右</text>'
     body += f'<circle cx="{cx}" cy="{cy}" r="225" fill="none" stroke="#000" stroke-width="8"/>'
     for k in range(4):
         a = math.radians(k * 90)
@@ -36,12 +41,18 @@ def clock(h, m):
 for name, (h, m) in {'clock-right': (1, 10), 'clock-left': (10, 45), 'clock-split': (2, 35)}.items():
     (out / f'{name}.svg').write_text(clock(h, m))
 
+# 时钟想象题的流程示例：看到 15:05 → 想出钟面 → 判断
+(out / 'clock-time.svg').write_text(svg(500, 500, '<text x="250" y="290" font-size="150" font-weight="700" fill="#000" text-anchor="middle" font-family="sans-serif">15:05</text>'))
+(out / 'clock-imagine.svg').write_text(clock(3, 5, divider=False))
+(out / 'clock-305.svg').write_text(clock(3, 5))
+
 # ---------- 空间 ----------
 DOTS = [(130, 110), (470, 90), (90, 300), (430, 330)]
 
 def dots(ghost=False):
     if ghost:
-        return ''.join(f'<circle cx="{x}" cy="{y}" r="13" fill="none" stroke="{GRAY}" stroke-width="3" stroke-dasharray="6 5"/>' for x, y in DOTS)
+        # 刚才出现过的点：浅灰实心点 + 虚线圈，比黑点淡，一眼能看出“原来在这里”
+        return ''.join(f'<circle cx="{x}" cy="{y}" r="11" fill="#bcccdc"/><circle cx="{x}" cy="{y}" r="20" fill="none" stroke="#829ab1" stroke-width="3" stroke-dasharray="7 5"/>' for x, y in DOTS)
     return ''.join(f'<circle cx="{x}" cy="{y}" r="11" fill="#000"/>' for x, y in DOTS)
 
 def arrow(sx, sy, dx, dy, extend_to=None):
@@ -68,4 +79,5 @@ W, H = 600, 420
 (out / 'sequence-1.svg').write_text(svg(W, H, dots()))
 (out / 'sequence-2.svg').write_text(svg(W, H, arrow(*YES_START, *yes_dir)))
 (out / 'sequence-3.svg').write_text(svg(W, H, dots(ghost=True) + arrow(*YES_START, *yes_dir, extend_to=YES_TARGET)))
+(out / 'sequence-no.svg').write_text(svg(W, H, dots(ghost=True) + arrow(*NO_START, *NO_DIR, extend_to=no_end)))
 print(sorted(p.name for p in out.iterdir()))
