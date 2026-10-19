@@ -37,7 +37,7 @@ VERSIONS = [
     ("ScalePad-电脑版", "ScalePad", False),
     ("ScalePad-电脑版-内部（含自适应）", "ScalePad-adaptive", True),
 ]
-# 对外版不带 README.md（里面有自适应说明），只带 README-FIRST.txt
+# 对外版不带 README.md（里面有自适应说明），只带 README.txt
 INTERNAL_ONLY_FILES = {"README.md"}
 STRIP_SUFFIXES = (".js", ".html", ".css")
 BLOCK_OPEN = {"//@A{", "<!--@A{-->", "/*@A{*/"}
@@ -75,50 +75,57 @@ def strip_markers(text: str, adaptive: bool) -> str:
     if depth:
         raise SystemExit("自适应标记 //@A{ 和 //@A} 没有配对")
     return "\n".join(out)
-GUIDE_NAME = "README-FIRST.txt"  # 包内文件名用英文：旧版 Windows 解压中文文件名可能乱码
+GUIDE_NAME = "README.txt"  # 包内文件名用英文：旧版 Windows 解压中文文件名可能乱码
 
-GUIDE = """ScalePad {label} 使用说明
-打包日期：{date}
+GUIDE = """ScalePad {label} 简易说明（{date}）
 
-【Mac】
-1. 解压后双击 start-scalepad-desktop.command。
-   第一次如果提示“无法打开”：右键点它 → 打开 → 打开。
-2. 会自动用 Chrome 打开 http://127.0.0.1:47815/ ，测试期间不要关掉弹出的终端窗口。
+一、怎么打开
+  Mac：双击 start-scalepad-desktop.command
+       （第一次提示“无法打开”：右键点它 → 打开 → 打开）
+  Windows：双击 start-scalepad-desktop.bat
+       （提示“Windows 已保护你的电脑”：点“更多信息” → “仍要运行”）
+  测试期间不要关掉弹出的黑色 / 终端窗口。建议用 Chrome 或 Edge。
 
-【Windows】
-1. 解压后双击 start-scalepad-desktop.bat。
-   如果提示“Windows 已保护你的电脑”：点“更多信息”→“仍要运行”。
-2. 会自动用默认浏览器打开 http://127.0.0.1:47815/ ，测试期间不要关掉黑色窗口。
-   建议用 Chrome 或 Edge。
+二、键盘翻题（按一下就行）
+  A = 上一题        D = 下一题        （← → 也可以）
+  W = 上一部分      S = 下一部分
+  示例页：看满 5 秒后按 Enter 或 D 开始答题
 
-【没有安装 Python 时】
-启动脚本会直接用浏览器打开 index.html，答题、导出 CSV/JSON/xlsx 都正常，
-只是没有“追加进汇总表”按钮。想要这个按钮，安装 Python 3（https://www.python.org/downloads/，
-Windows 安装时勾选“Add python.exe to PATH”），再执行 pip install openpyxl。
+三、医生标记对错（按一下就行）
+  1 = 对
+  2 = 错
+  3 = 不确定（不算进正确率）
+  名人面孔识别（看照片说名字）：
+      1 = 对    2 = 错（见过但说不出名字）    3 = 没见过（不算进正确率）
+  名人比较题（谁的脸更圆等）：
+      3 = 有人没见过（不算进正确率），患者也可以自己点“有人没见过”
 
-【怎么选题】
-首页上面选“BIP A 套”或“BIP B 套”（先感知、再想象，一般选这个）。
-特殊情况点“分开做”，只做感知或只做想象。下面可以再加 VVIQ、PIT、情绪量表等。
-每套先朗读数字、字母、词语，再做医生读题和医生判断的部分，之后屏幕提示把设备交给患者。
-空间题、时钟题开始前先显示一页示例（不计分），至少看 5 秒才能点“看懂了，开始答题”。
-名人题全部做完；患者没见过的名人不计入正确率。
+四、跳过（要长按，防止误触）
+  长按 Q 或空格 → 弹出跳过菜单 → 按数字选原因（Esc 取消）
+  屏幕上只显示代码，患者看不出原因：
+      按 1 = 001  过于简单
+      按 2 = 002  太难，做不出来
+      按 3 = 003  不熟悉内容（不认识名人、不熟悉英文字母等）
+      按 4 = 004  拒绝作答或疲劳
+      按 5 = 005  设备或操作问题
+      按 6 = 009  其他原因
+  菜单里还可以选“仅本题”或“本部分剩余题”。
 
-【注意】
-- 答题记录保存在这台电脑的浏览器里。每次测完请在结果页导出 CSV 和 JSON 存好；
-  清除浏览器数据会删掉本机记录。
-- 认知任务（数轴、点数比较）第一次使用请在“更多设置 > 认知任务画面尺寸校准”量一下 10 厘米的线。
-- 口答题由医生用键盘 1 / 2 / 3 标记（1 正确、2 错误、3 不确定），也可以点屏幕下方灰色的“医生记录”区。
-  名人面孔识别：1 正确、2 错误、3 没见过；名人比较题（谁的脸更圆等）：3 = 有人没见过。
-- 电脑键盘：A 上一题、D 下一题（← → 也行）、W 上一部分、S 下一部分，按一下即可。
-  跳过要长按 Q 或空格，再按 1–6 选代码（屏幕上只显示代码，患者看不出原因）：
-  1 = 001 过于简单  2 = 002 太难  3 = 003 不熟悉内容  4 = 004 拒绝或疲劳  5 = 005 设备问题  6 = 009 其他
-- 数轴、点数比较评估：右下角“长按跳过”按住 1 秒可跳过；开始后的说明页按 A / Esc 或点“返回”可退回。
-{adaptive_note}
-{more}
+五、数轴评估、点数比较评估
+  右下角“长按跳过”按住 1 秒 = 跳过本评估，然后选跳过代码
+  点“开始”后的说明页：按 A / Esc 或点“返回”可以退回
+  第一次用请在“更多设置 > 认知任务画面尺寸校准”量一下 10 厘米的线
+
+六、记得导出
+  测完在结果页点“导出结果表（CSV）”和“导出完整备份（JSON）”存好。
+  记录只存在这台电脑的浏览器里，清除浏览器数据会删掉。
+{adaptive_note}{more}
 """
 
-ADAPTIVE_NOTE = """- 自适应：首页“自适应”选“开启”后，每部分先做难题；连续答对 5 题，其余题自动计为正确；
-  至少做满 5 题后连续答错 4 题，其余题按 002（太难）自动跳过；不看用时。名人题不省略。
+ADAPTIVE_NOTE = """
+七、自适应（仅内部版）
+  首页“自适应”选“开启”后，每部分先做难题；连续答对 5 题，其余题自动计为正确；
+  至少做满 5 题后连续答错 4 题，其余题按 002 自动跳过。名人题不省略。
 """
 
 
@@ -151,7 +158,7 @@ def build(label: str, folder: str, adaptive: bool, files: list[str]) -> Path:
     guide = GUIDE.format(
         label=label.split("-", 1)[-1] if "-" in label else label, date=datetime.date.today().isoformat(),
         adaptive_note=ADAPTIVE_NOTE if adaptive else "",
-        more="更详细的说明见 README.md。" if adaptive else "",
+        more="\n更详细的说明见 README.md。" if adaptive else "",
     )
     with zipfile.ZipFile(target, "w") as archive:
         for name in files:
