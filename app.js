@@ -8,7 +8,7 @@ const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
 const adaptiveStorageKey = 'scalepad_adaptive_v1';
-const buildTag = '2026-10-19f';
+const buildTag = '2026-10-19g';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -2038,60 +2038,126 @@ async function openSession(id, mode) {
   else showResults();
 }
 
+/* 首页测试记录：默认显示最近 5 次，可“显示更多”看全部，也可按编号 / 姓名 / 问卷搜索。
+ * 每条的作答进度只在显示出来时才去读取，记录多了也不会卡。 */
+let recentLimit = 5;
+let recentQuery = '';
+const recentPage = 20;
+const answeredCache = new Map();
+
+async function sessionAnsweredCount(session) {
+  const key = session.id;
+  if (answeredCache.has(key)) return answeredCache.get(key);
+  const answered = new Set();
+  (await idbGetSessionEvents(session.id)).forEach((event) => {
+    if (event.type === 'answer_committed' || event.type === 'question_skipped' || event.type === 'adaptive_credited') answered.add(event.index);
+    else if (event.type === 'adaptive_revoked') answered.delete(event.index);
+  });
+  answeredCache.set(key, answered.size);
+  return answered.size;
+}
+
+function sessionRow(session, answered) {
+  const row = document.createElement('div');
+  row.className = 'session-row';
+  const info = document.createElement('div');
+  info.className = 'info';
+  const completed = session.status === 'completed';
+  const who = [session.patient, session.name].filter(Boolean).join(' · ');
+  const status = document.createElement('em');
+  status.className = completed ? 'done' : '';
+  status.textContent = completed ? '已出结果' : '未完成';
+  const started = new Date(session.startedAt);
+  const sameYear = started.getFullYear() === new Date().getFullYear();
+  const meta = document.createElement('small');
+  meta.textContent = `${started.toLocaleString('zh-CN', { ...(sameYear ? {} : { year: 'numeric' }), month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · ${session.preset} · 已答/跳过 ${answered}/${session.questionCount}`;
+  info.append(who || '未填写', status, meta);
+  row.append(info);
+  if (!completed) {
+    const resume = document.createElement('button');
+    resume.type = 'button';
+    resume.className = 'small selected';
+    resume.textContent = '继续作答';
+    resume.onclick = () => { void openSession(session.id, 'resume'); };
+    row.append(resume);
+  }
+  const view = document.createElement('button');
+  view.type = 'button';
+  view.className = 'small';
+  view.textContent = '查看结果';
+  view.onclick = () => { void openSession(session.id, 'results'); };
+  row.append(view);
+  return row;
+}
+
 async function renderRecentSessions() {
   const box = $('recentSessions');
+  answeredCache.clear();
   try {
     await openLogDb();
     const sessions = (await idbGetAllSessions())
       .filter((session) => session.plan)
-      .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)))
-      .slice(0, 5);
+      .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
     if (!sessions.length) {
       box.classList.add('hidden');
       return;
     }
-    const rows = await Promise.all(sessions.map(async (session) => {
-      const answered = new Set();
-      (await idbGetSessionEvents(session.id)).forEach((event) => {
-        if (event.type === 'answer_committed' || event.type === 'question_skipped' || event.type === 'adaptive_credited') answered.add(event.index);
-        else if (event.type === 'adaptive_revoked') answered.delete(event.index);
-      });
-      return { session, answered: answered.size };
-    }));
-    box.innerHTML = '<h3>最近测试</h3><p>每题都已保存在本机。中途回到首页或退出程序后，可在这里继续作答或查看结果。</p>';
-    rows.forEach(({ session, answered }) => {
-      const row = document.createElement('div');
-      row.className = 'session-row';
-      const info = document.createElement('div');
-      info.className = 'info';
-      const completed = session.status === 'completed';
-      const who = [session.patient, session.name].filter(Boolean).join(' · ');
-      const status = document.createElement('em');
-      status.className = completed ? 'done' : '';
-      status.textContent = completed ? '已出结果' : '未完成';
-      const meta = document.createElement('small');
-      meta.textContent = `${new Date(session.startedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · ${session.preset} · 已答/跳过 ${answered}/${session.questionCount}`;
-      info.append(who || '未填写', status, meta);
-      row.append(info);
-      if (!completed) {
-        const resume = document.createElement('button');
-        resume.type = 'button';
-        resume.className = 'small selected';
-        resume.textContent = '继续作答';
-        resume.onclick = () => { void openSession(session.id, 'resume'); };
-        row.append(resume);
-      }
-      const view = document.createElement('button');
-      view.type = 'button';
-      view.className = 'small';
-      view.textContent = '查看结果';
-      view.onclick = () => { void openSession(session.id, 'results'); };
-      row.append(view);
-      box.append(row);
-    });
+    box.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'recent-head';
+    const title = document.createElement('h3');
+    title.textContent = `测试记录（共 ${sessions.length} 次）`;
+    head.append(title);
+    if (sessions.length > 5) {
+      const search = document.createElement('input');
+      search.type = 'search';
+      search.className = 'recent-search';
+      search.placeholder = '搜索编号 / 姓名 / 问卷';
+      search.value = recentQuery;
+      search.oninput = () => { recentQuery = search.value; recentLimit = Math.max(recentLimit, 5); void fillList(); };
+      head.append(search);
+    }
+    const note = document.createElement('p');
+    note.textContent = '每题都已保存在本机。中途回到首页或退出程序后，可在这里继续作答或查看结果。';
+    const list = document.createElement('div');
+    const more = document.createElement('div');
+    more.className = 'recent-more';
+    box.append(head, note, list, more);
     box.classList.remove('hidden');
+
+    let token = 0;
+    async function fillList() {
+      const mine = ++token;
+      const query = recentQuery.trim().toLowerCase();
+      const matched = query
+        ? sessions.filter((session) => [session.patient, session.name, session.preset].some((value) => String(value || '').toLowerCase().includes(query)))
+        : sessions;
+      const shown = matched.slice(0, recentLimit);
+      const counts = await Promise.all(shown.map(sessionAnsweredCount));
+      if (mine !== token) return;
+      list.replaceChildren(...shown.map((session, index) => sessionRow(session, counts[index])));
+      if (!matched.length) list.innerHTML = '<p class="recent-empty">没有找到匹配的记录</p>';
+      more.innerHTML = '';
+      if (matched.length > shown.length) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'small';
+        button.textContent = `显示更多（还有 ${matched.length - shown.length} 次）`;
+        button.onclick = () => { recentLimit += recentPage; void fillList(); };
+        more.append(button);
+      }
+      if (recentLimit > 5 && shown.length > 5) {
+        const fold = document.createElement('button');
+        fold.type = 'button';
+        fold.className = 'small';
+        fold.textContent = '收起';
+        fold.onclick = () => { recentLimit = 5; void fillList(); };
+        more.append(fold);
+      }
+    }
+    await fillList();
   } catch (error) {
-    console.warn('无法读取最近测试。', error);
+    console.warn('无法读取测试记录。', error);
     box.classList.add('hidden');
   }
 }
