@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 EXCLUDE_PREFIXES = ("dist/", "Scales/", "Scale/", "certs/", ".git")
 EXCLUDE_FILES = {
-    ".gitignore", "tools/build_release.py", "check-assets.js",
+    ".gitignore", "tools/build_release.py", "tools/make_examples.py", "check-assets.js",
     # iPad 版暂停更新，电脑版不需要这些
     "在iPad上安装.md", "serve_https.py", "start-scalepad-mac.sh", "start-scalepad.ps1", "allow-scalepad-firewall.ps1",
 }
@@ -50,6 +50,12 @@ GUIDE = """ScalePad {label} 使用说明
 启动脚本会直接用浏览器打开 index.html，答题、导出 CSV/JSON/xlsx 都正常，
 只是没有“追加进汇总表”按钮。想要这个按钮，安装 Python 3（https://www.python.org/downloads/，
 Windows 安装时勾选“Add python.exe to PATH”），再执行 pip install openpyxl。
+
+【怎么选题】
+首页上面选“BIP A 套”或“BIP B 套”（先感知、再想象，一般选这个）。
+特殊情况点“分开做”，只做感知或只做想象。下面可以再加 VVIQ、PIT、情绪量表等。
+每套先做需要医生判断或医生读题的部分，之后屏幕提示把设备交给患者。
+空间题、时钟题开始前先显示一页示例（不计分），看懂后点“开始答题”。
 
 【注意】
 - 答题记录保存在这台电脑的浏览器里。每次测完请在结果页导出 CSV 和 JSON 存好；

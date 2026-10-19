@@ -4,7 +4,7 @@ const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
 const adaptiveStorageKey = 'scalepad_adaptive_v1';
-const buildTag = '2026-10-19d';
+const buildTag = '2026-10-19e';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -418,9 +418,18 @@ function withDefaultHard(custom, preset) {
   const bySection = (questions) => questions.reduce((map, question) => map.set(question.section, [...(map.get(question.section) || []), question]), new Map());
   const defaultSections = bySection(preset.questions);
   const seen = new Map();
+  /* 部分顺序跟默认题库一致（默认题库调整过顺序时，旧的保存也跟着调整；默认里没有的部分保持在后面） */
+  const sectionOrder = [...defaultSections.keys()];
+  const rank = (question) => {
+    const at = sectionOrder.indexOf(question.section);
+    return at < 0 ? sectionOrder.length : at;
+  };
+  const ordered = custom.questions.map((question, index) => ({ question, index }))
+    .sort((a, b) => rank(a.question) - rank(b.question) || a.index - b.index)
+    .map(({ question }) => question);
   return {
     ...custom,
-    questions: custom.questions.map((question) => {
+    questions: ordered.map((question) => {
       const position = seen.get(question.section) || 0;
       seen.set(question.section, position + 1);
       let base = defaults.get(`${question.section}\n${question.text}`);
@@ -458,11 +467,23 @@ function savePresets() {
 function loadPlan() {
   try {
     const saved = JSON.parse(localStorage.getItem(planStorageKey));
-    if (Array.isArray(saved)) return saved.filter((name) => typeof name === 'string');
+    if (Array.isArray(saved)) return mergeIntoSets(saved.filter((name) => typeof name === 'string'));
   } catch (error) {
     console.warn('无法读取上次选择的量表。', error);
   }
   return [];
+}
+
+/* 旧版本选过同一套的感知和想象两卷 → 换成这一套（先感知、再想象） */
+function mergeIntoSets(names) {
+  let result = [...names];
+  defaultPresets.filter((preset) => preset.parts).forEach((set) => {
+    if (!set.parts.every((part) => result.includes(part))) return;
+    const at = Math.min(...set.parts.map((part) => result.indexOf(part)));
+    result = result.filter((name) => !set.parts.includes(name));
+    result.splice(at, 0, set.name);
+  });
+  return result;
 }
 
 function savePlan() {
@@ -477,6 +498,7 @@ function bandFromAge() {
 }
 
 const groupHeadings = { task: '认知任务（全屏进行；用 iPad 时请横放）', child: '儿童版问卷（按需选择）' };
+let showBipParts = false;
 
 /* 儿童版问卷、认知任务单独成组，由医生按需勾选 */
 function presetGroup(preset) {
@@ -491,37 +513,80 @@ function planNeedsLetters() {
   return planPresets().some((preset) => preset.questions.some((question) => question.needsLetters));
 }
 
+/* 选了一整套就去掉同一套里单独的卷，反之亦然，避免重复做 */
+function togglePlan(name) {
+  const order = plan.indexOf(name);
+  if (order >= 0) {
+    plan.splice(order, 1);
+  } else {
+    const sets = defaultPresets.filter((preset) => preset.parts);
+    const set = sets.find((preset) => preset.name === name);
+    const owner = sets.find((preset) => preset.parts.includes(name));
+    const conflicts = set ? set.parts : owner ? [owner.name] : [];
+    plan = plan.filter((item) => !conflicts.includes(item));
+    plan.push(name);
+  }
+  savePlan();
+  renderScaleList();
+}
+
+function scaleButton(preset) {
+  const order = plan.indexOf(preset.name);
+  const item = document.createElement('button');
+  item.type = 'button';
+  item.className = `scale-item${order >= 0 ? ' on' : ''}`;
+  const badge = document.createElement('span');
+  badge.className = 'badge';
+  badge.textContent = order >= 0 ? String(order + 1) : '';
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent = preset.name;
+  item.append(badge, name);
+  item.onclick = () => togglePlan(preset.name);
+  return item;
+}
+
+function groupHeading(text) {
+  const heading = document.createElement('p');
+  heading.className = 'scale-group';
+  heading.textContent = text;
+  return heading;
+}
+
+/* 上面：BIP A 套 / B 套（感知 + 想象一起做）；需要时点“分开做”只选感知或想象；下面：其他问卷 */
 function renderScaleList() {
   const list = $('scaleList');
   list.innerHTML = '';
-  let lastGroup = '';
-  presets.forEach((preset) => {
-    const group = presetGroup(preset);
-    if (groupHeadings[group] && lastGroup !== group) {
-      const heading = document.createElement('p');
-      heading.className = 'scale-group';
-      heading.textContent = groupHeadings[group];
-      list.append(heading);
+  const sets = presets.filter((preset) => presetGroup(preset) === 'bipSet');
+  const parts = presets.filter((preset) => presetGroup(preset) === 'bipPart');
+  if (sets.length) {
+    list.append(groupHeading('BIP 套题（感知 + 想象一起做，先感知、再想象）'));
+    const grid = document.createElement('div');
+    grid.className = 'set-grid';
+    sets.forEach((preset) => grid.append(scaleButton(preset)));
+    list.append(grid);
+  }
+  if (parts.length) {
+    const open = showBipParts || parts.some((preset) => plan.includes(preset.name));
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'parts-toggle';
+    toggle.textContent = open ? '分开做（只做感知或只做想象）▾' : '特殊情况：分开做（只做感知或只做想象）▸';
+    toggle.onclick = () => { showBipParts = !open; renderScaleList(); };
+    list.append(toggle);
+    if (open) {
+      const grid = document.createElement('div');
+      grid.className = 'set-grid parts';
+      parts.forEach((preset) => grid.append(scaleButton(preset)));
+      list.append(grid);
     }
+  }
+  let lastGroup = 'bip';
+  presets.filter((preset) => !['bipSet', 'bipPart'].includes(presetGroup(preset))).forEach((preset) => {
+    const group = presetGroup(preset);
+    if (lastGroup !== group) list.append(groupHeading(groupHeadings[group] || '其他问卷'));
     lastGroup = group;
-    const order = plan.indexOf(preset.name);
-    const item = document.createElement('button');
-    item.type = 'button';
-    item.className = `scale-item${order >= 0 ? ' on' : ''}`;
-    const badge = document.createElement('span');
-    badge.className = 'badge';
-    badge.textContent = order >= 0 ? String(order + 1) : '';
-    const name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = preset.name;
-    item.append(badge, name);
-    item.onclick = () => {
-      if (order >= 0) plan.splice(order, 1);
-      else plan.push(preset.name);
-      savePlan();
-      renderScaleList();
-    };
-    list.append(item);
+    list.append(scaleButton(preset));
   });
 
   $('start').textContent = plan.length > 1 ? `开始（${plan.length} 份）` : '开始';
@@ -673,6 +738,21 @@ function buildPlan(chosen, band, adaptiveMode = false) {
     });
   }
   return { plan: steps, questions };
+}
+
+/* 题库调整过部分顺序后，恢复旧测试仍按当时的部分顺序排题，保证题号与记录对得上 */
+function alignToSavedPlan(built, savedPlan) {
+  const key = (step) => `${step.preset}\n${step.section}`;
+  const groups = new Map(built.plan.map((step, index) => [key(step), { step, questions: built.questions.filter((question) => question.planIndex === index) }]));
+  if (!Array.isArray(savedPlan) || savedPlan.length !== built.plan.length || groups.size !== built.plan.length || !savedPlan.every((step) => groups.has(key(step)))) return built;
+  const plan = [];
+  const questions = [];
+  savedPlan.forEach((saved, index) => {
+    const group = groups.get(key(saved));
+    plan.push(group.step);
+    group.questions.forEach((question) => questions.push({ ...question, planIndex: index }));
+  });
+  return { plan, questions };
 }
 
 /* 有对错的部分，且既有难题又有其他题，才走自适应 */
@@ -828,6 +908,7 @@ async function startSession() {
   }
   answers = [];
   answerByQuestion = {};
+  seenGates = new Set();
   /* 不熟悉英文字母：字母相关题直接记为 003 跳过，顺序作答时越过 */
   if (lettersFamiliar === 'no') {
     const letterIndexes = activeQuestions.map((question, index) => (question.needsLetters ? index : -1)).filter((index) => index >= 0);
@@ -1039,28 +1120,7 @@ function renderEditorForm() {
   });
 }
 
-function introAction(question) {
-  if (question.response === 'task') return '';
-  if (question.delivery === 'audio') return '请听医生读题，大声说出答案';
-  if (question.response === 'text') return '请大声说出答案，不用点屏幕';
-  return '请点下面的按钮作答';
-}
-
-function renderQuestion() {
-  if (advanceTimer) window.clearTimeout(advanceTimer);
-  advanceTimer = null;
-  clearSequenceTimer();
-  pendingAnswer = null;
-  const question = activeQuestions[questionIndex];
-  const options = question.options || [];
-  const savedAnswer = answerByQuestion[questionIndex];
-  const audioOnly = question.delivery === 'audio';
-  $('prevQuestion').disabled = nextOpenIndex(questionIndex - 1, -1) < 0;
-  $('nextQuestion').disabled = nextOpenIndex(questionIndex + 1) >= activeQuestions.length;
-  beginQuestionTelemetry(question);
-  if (sessionId && storageReady) void writeEvent({ type: 'question_presented', ...questionFields(question), presentedAt: currentQuestionTelemetry.presentedAt });
-  /* 纯听题：患者看不到题目，屏幕只提示交给医生，由医生读题 */
-  const displayText = audioOnly ? '请把设备交给医生' : (question.display ?? question.text);
+function renderBand(question) {
   $('sectionName').textContent = question.section || planLabel();
   $('sectionMeta').textContent = `${partCode(question.planIndex)} 部分 · ${question.planPreset}`;
   $('partsButton').textContent = `${partCode(question.planIndex)} 部分 ▾`;
@@ -1082,6 +1142,98 @@ function renderQuestion() {
     $('sectionIntro').append(line);
   }
   $('sectionIntro').classList.toggle('hidden', !question.sectionIntro && !action);
+}
+
+/* 已看过示例 / 交接提示的部分（本次打开测试期间） */
+let seenGates = new Set();
+
+function gateFor(index) {
+  const question = activeQuestions[index];
+  if (!question || answerByQuestion[index] || seenGates.has(question.planIndex)) return null;
+  if (activeQuestions.findIndex((item) => item.planIndex === question.planIndex) !== index) return null;
+  const previous = activeQuestions[index - 1];
+  const handoff = Boolean(previous && previous.delivery === 'audio' && question.delivery !== 'audio');
+  const example = question.example ? window.scalePadExamples?.[question.example] : null;
+  return handoff || example ? { handoff, example } : null;
+}
+
+function renderGate(question, gate) {
+  $('quiz').classList.remove('media-question');
+  const card = $('gateCard');
+  card.innerHTML = '';
+  if (gate.handoff) {
+    const handoff = document.createElement('div');
+    handoff.className = 'gate-handoff';
+    handoff.innerHTML = '<strong>医生部分已完成</strong><span>请把设备交给患者，接下来的题由患者自己点按钮作答</span>';
+    card.append(handoff);
+  }
+  if (gate.example) {
+    const title = document.createElement('h3');
+    title.textContent = `${gate.example.title.replace('示例：', '示例（不计分）：')}`;
+    const panels = document.createElement('div');
+    panels.className = `gate-panels n${gate.example.panels.length}`;
+    gate.example.panels.forEach((panel) => {
+      const figure = document.createElement('figure');
+      const image = document.createElement('img');
+      image.src = panel.image;
+      image.alt = '示例图';
+      const caption = document.createElement('figcaption');
+      caption.textContent = panel.caption;
+      figure.append(image, caption);
+      panels.append(figure);
+    });
+    card.append(title);
+    if (gate.example.note) {
+      const note = document.createElement('p');
+      note.className = 'gate-note';
+      note.textContent = gate.example.note;
+      card.append(note);
+    }
+    card.append(panels);
+  }
+  const start = document.createElement('button');
+  start.type = 'button';
+  start.className = 'gate-start';
+  start.textContent = gate.example ? '看懂了，开始答题' : '开始';
+  start.onclick = () => {
+    seenGates.add(question.planIndex);
+    if (sessionId && storageReady) void writeEvent({ type: 'gate_dismissed', ...questionFields(question), handoff: gate.handoff, example: question.example || null });
+    renderQuestion();
+  };
+  card.append(start);
+}
+
+function introAction(question) {
+  if (question.response === 'task') return '';
+  if (question.delivery === 'audio') return '请听医生读题，大声说出答案';
+  if (question.response === 'text') return '请大声说出答案，不用点屏幕';
+  return '请点下面的按钮作答';
+}
+
+function renderQuestion() {
+  if (advanceTimer) window.clearTimeout(advanceTimer);
+  advanceTimer = null;
+  clearSequenceTimer();
+  pendingAnswer = null;
+  const question = activeQuestions[questionIndex];
+  const options = question.options || [];
+  const savedAnswer = answerByQuestion[questionIndex];
+  const audioOnly = question.delivery === 'audio';
+  $('prevQuestion').disabled = nextOpenIndex(questionIndex - 1, -1) < 0;
+  $('nextQuestion').disabled = nextOpenIndex(questionIndex + 1) >= activeQuestions.length;
+  renderBand(question);
+  /* 部分开头的示例 / 交接提示：看完点“开始”才出题，计时从出题算起 */
+  const gate = gateFor(questionIndex);
+  $('quiz').classList.toggle('gated', Boolean(gate));
+  if (gate) {
+    stopSpeaking();
+    renderGate(question, gate);
+    return;
+  }
+  beginQuestionTelemetry(question);
+  if (sessionId && storageReady) void writeEvent({ type: 'question_presented', ...questionFields(question), presentedAt: currentQuestionTelemetry.presentedAt });
+  /* 纯听题：患者看不到题目，屏幕只提示交给医生，由医生读题 */
+  const displayText = audioOnly ? '请把设备交给医生' : (question.display ?? question.text);
   $('question').textContent = displayText;
   $('question').className = `q${displayText.length > 34 ? ' small' : displayText.length > 14 ? ' medium' : ''}`;
   $('questionWrap').classList.toggle('empty-question', !displayText);
@@ -1823,7 +1975,7 @@ async function loadSession(id) {
     return false;
   }
   const chosen = [...new Set(record.plan.map((step) => step.preset))].map((name) => presets.find((preset) => preset.name === name));
-  const built = chosen.every(Boolean) ? buildPlan(chosen, record.ageBand, Boolean(record.adaptive)) : null;
+  const built = chosen.every(Boolean) ? alignToSavedPlan(buildPlan(chosen, record.ageBand, Boolean(record.adaptive)), record.plan) : null;
   if (!built || built.questions.length !== record.questionCount) {
     window.alert('这次测试用到的问卷已被修改或删除，题目对不上，无法恢复。原始记录仍保存在本机。');
     return false;
@@ -1848,6 +2000,7 @@ async function loadSession(id) {
   activePlan = built.plan;
   activeQuestions = built.questions;
   answerByQuestion = {};
+  seenGates = new Set();
   events.forEach(({ id: eventId, sessionId: owner, sequence, recordedAt, type, ...fields }) => {
     if (type === 'answer_committed' || type === 'question_skipped' || type === 'adaptive_credited') answerByQuestion[fields.index] = fields;
     else if (type === 'adaptive_revoked') delete answerByQuestion[fields.index];
@@ -2259,6 +2412,10 @@ void renderRecentSessions();
 document.addEventListener('keydown', (event) => {
   if ($('quiz').classList.contains('hidden') || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
   if (!$('partsOverlay').classList.contains('hidden') || !$('skipOverlay').classList.contains('hidden')) return;
+  if ($('quiz').classList.contains('gated')) {
+    if (event.key === 'Enter' && !(event.target instanceof HTMLButtonElement)) { event.preventDefault(); document.querySelector('#gateCard .gate-start')?.click(); }
+    return;
+  }
   const target = event.target;
   if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
     if (event.key === 'Escape') target.blur();

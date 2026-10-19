@@ -3,8 +3,8 @@
  *              audioText 朗读文本, options 选项, response, correct 正确答案,
  *              scoring 'auto'|'manual'|'scale', values 量表分值, image, ageBand,
  *              delivery 'audio' 纯语音题, sequence 先黑点后箭头的刺激序列, needsLetters 需要认识英文字母 }
- * delivery 为 'audio' 的题屏幕上不出现题目，只提示“请把设备交给医生”，由医生照着读题；
- * 这类分区统一排在 BIP 视觉心理意象的最后。
+ * delivery 为 'audio' 的题屏幕上不出现题目，只提示“请把设备交给医生”，由医生照着读题。
+ * 排序：需要医生判断对错的口答分区、医生读题的分区都排在最前面，之后才是患者自己点选的分区。
  */
 
 const splitPair = (value) => value.split(/\s*\/\s*/).map((part) => part.trim());
@@ -161,7 +161,8 @@ const buildSection = (def) => {
       ...(audioOnly.has(def.id) ? { delivery: 'audio' } : {}),
       ...(def.needsLetters ? { needsLetters: true } : {}),
       ...(def.ageBand ? { ageBand: def.ageBand } : {}),
-      ...(def.hard?.includes(index + 1) ? { hard: true } : {})
+      ...(def.hard?.includes(index + 1) ? { hard: true } : {}),
+      ...(examples[def.id] ? { example: def.id } : {})
     };
   });
 };
@@ -181,9 +182,61 @@ const withSequence = (def, folder) => ({
   })
 });
 
-/* 需要靠听、不能让患者看到题目的分区，统一放到最后，由医生手持设备读题 */
+/* 需要靠听、不能让患者看到题目的分区，由医生手持设备读题 */
 const audioOnly = new Set(['digitCurve', 'digitLoop', 'letterBuild', 'hanziStructure', 'hanziDot', 'wordStructure']);
-const audioLast = (defs) => [...defs.filter((def) => !audioOnly.has(def.id)), ...defs.filter((def) => audioOnly.has(def.id))];
+/* 患者看屏幕口答、由医生判断对错的分区 */
+const doctorJudged = (def) => def.response === 'text' && !audioOnly.has(def.id);
+const doctorRun = (def) => doctorJudged(def) || audioOnly.has(def.id);
+/* 单独一卷：医生判断的分区 → 医生读题的分区 → 患者自己点选的分区 */
+const doctorFirst = (defs) => [...defs.filter(doctorJudged), ...defs.filter((def) => audioOnly.has(def.id)), ...defs.filter((def) => !doctorRun(def))];
+/* 感知 + 想象一套做：医生部分全放开头（先感知后想象），之后患者部分里同类题挨着、先感知再想象 */
+const perceptionPairs = { earShapeImage: 'earShape', spatial: 'spatialSequence', clockImage: 'clockImagery' };
+const combinedSet = (perception, imagery) => {
+  const paired = new Set(Object.values(perceptionPairs));
+  return [
+    ...perception.filter(doctorJudged),
+    ...imagery.filter(doctorJudged),
+    ...imagery.filter((def) => audioOnly.has(def.id)),
+    ...perception.filter((def) => !doctorRun(def)).flatMap((def) => [def, ...imagery.filter((other) => other.id === perceptionPairs[def.id])]),
+    ...imagery.filter((def) => !doctorRun(def) && !paired.has(def.id))
+  ];
+};
+
+/* 空间、时钟题开始前先给患者看的示例（不计分），由 app.js 在本部分第一题前显示 */
+const examples = {
+  spatial: {
+    title: '示例：箭头有没有指向某个黑点？',
+    panels: [
+      { image: 'assets/examples/spatial-yes.svg', caption: '箭头顺着方向延长（红色虚线），正好碰到一个黑点 → 选“是”' },
+      { image: 'assets/examples/spatial-no.svg', caption: '箭头延长后从黑点旁边经过，一个黑点也没碰到 → 选“否”' }
+    ]
+  },
+  spatialSequence: {
+    title: '示例：先记住黑点，再判断箭头',
+    panels: [
+      { image: 'assets/examples/sequence-1.svg', caption: '① 先出现几个黑点，请记住它们的位置' },
+      { image: 'assets/examples/sequence-2.svg', caption: '② 黑点消失，只剩一个箭头' },
+      { image: 'assets/examples/sequence-3.svg', caption: '③ 想想刚才黑点在哪（灰圈）：碰到一个 → 选“是”，都碰不到 → 选“否”' }
+    ]
+  },
+  clockImage: {
+    title: '示例：以 12 点和 6 点的连线（虚线）分左右',
+    panels: [
+      { image: 'assets/examples/clock-right.svg', caption: '1:10：都在右半边 → 都在右侧' },
+      { image: 'assets/examples/clock-left.svg', caption: '10:45：都在左半边 → 都在左侧' },
+      { image: 'assets/examples/clock-split.svg', caption: '2:35：时针在右、分针在左 → 一左一右' }
+    ]
+  },
+  clockImagery: {
+    title: '示例：想象钟面，以 12 点和 6 点的连线分左右',
+    note: '下午的时间照样想象，例如 15:05 就是 3 点 05 分',
+    panels: [
+      { image: 'assets/examples/clock-right.svg', caption: '1:10：都在右半边 → 都在右侧' },
+      { image: 'assets/examples/clock-left.svg', caption: '10:45：都在左半边 → 都在左侧' },
+      { image: 'assets/examples/clock-split.svg', caption: '2:35：时针在右、分针在左 → 一左一右' }
+    ]
+  }
+};
 
 const withFaces = (def, folder) => ({
   ...def,
@@ -676,10 +729,14 @@ const hardPerceptionB = {
 const withHard = (defs, map) => defs.map((def) => (map[def.name] ? { ...def, hard: map[def.name] } : def));
 
 window.scalePadPresets = [
-  { name: 'BIP A｜视觉心理意象', questions: withHard(audioLast(imageryA), hardImageryA).flatMap(buildSection) },
-  { name: 'BIP B｜视觉心理意象', questions: withHard(audioLast(imageryB), hardImageryB).flatMap(buildSection) },
-  { name: 'BIP A｜视觉感知', questions: withHard(perceptionA, hardPerceptionA).flatMap(buildSection) },
-  { name: 'BIP B｜视觉感知', questions: withHard(perceptionB, hardPerceptionB).flatMap(buildSection) },
+  { name: 'BIP A 套｜先感知、再想象', group: 'bipSet', parts: ['BIP A｜视觉感知', 'BIP A｜视觉心理意象'],
+    questions: combinedSet(withHard(perceptionA, hardPerceptionA), withHard(imageryA, hardImageryA)).flatMap(buildSection) },
+  { name: 'BIP B 套｜先感知、再想象', group: 'bipSet', parts: ['BIP B｜视觉感知', 'BIP B｜视觉心理意象'],
+    questions: combinedSet(withHard(perceptionB, hardPerceptionB), withHard(imageryB, hardImageryB)).flatMap(buildSection) },
+  { name: 'BIP A｜视觉感知', group: 'bipPart', questions: withHard(doctorFirst(perceptionA), hardPerceptionA).flatMap(buildSection) },
+  { name: 'BIP A｜视觉心理意象', group: 'bipPart', questions: withHard(doctorFirst(imageryA), hardImageryA).flatMap(buildSection) },
+  { name: 'BIP B｜视觉感知', group: 'bipPart', questions: withHard(doctorFirst(perceptionB), hardPerceptionB).flatMap(buildSection) },
+  { name: 'BIP B｜视觉心理意象', group: 'bipPart', questions: withHard(doctorFirst(imageryB), hardImageryB).flatMap(buildSection) },
   { name: 'VVIQ｜视觉想象生动性', questions: vviq },
   { name: 'PIT｜前瞻意象任务', questions: pit },
   { name: 'BAI｜贝克焦虑量表', questions: bai },
@@ -689,3 +746,5 @@ window.scalePadPresets = [
   { name: 'DSRS｜儿童抑郁自评', group: 'child', questions: dsrs },
   { name: 'SCARED｜儿童焦虑筛查', group: 'child', questions: scared }
 ];
+
+window.scalePadExamples = examples;
