@@ -88,10 +88,10 @@ python3 tools/build_release.py
 
 在 `dist/` 生成两个电脑版（Windows、Mac 通用，内附 `README-FIRST.txt` 使用说明）：
 
-- `ScalePad-电脑版-对外（无自适应）.zip`：发给外部使用，首页没有自适应选项。
+- `ScalePad-电脑版.zip`：对外版，发给外部使用。自适应相关的代码、界面文字、结果说明、导出列（adaptiveCredited 等）、难题标记全部剥掉，也不带这份 README（只带 `README-FIRST.txt`），看不出有自适应功能。
 - `ScalePad-电脑版-内部（含自适应）.zip`：内部使用，可开启自适应。
 
-两版只差 `config.js` 里的 `adaptive` 开关。证书、`Scales/` 原始问卷和 iPad 专用文件（iPad 版暂停更新）不会打包进去。
+对外版靠源码里的标记剥代码（规则写在 `tools/build_release.py` 开头）：`//@A{ … //@A}` 整段、行尾 `/*@A*/` 的行只留在内部版，`//@E …` 是对外版的替换行。**以后改自适应相关代码时记得加标记**，打包后可以解压对外版，搜一下 `adaptive`、`自适应` 确认没有漏。证书、`Scales/` 原始问卷和 iPad 专用文件（iPad 版暂停更新）不会打包进去。
 
 ### 回首页与继续测试
 

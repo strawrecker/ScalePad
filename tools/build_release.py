@@ -3,15 +3,22 @@
     python3 tools/build_release.py
 
 在 dist/ 下生成（都是电脑版，Mac / Windows 通用）：
-    ScalePad-电脑版-对外（无自适应）.zip   发给外部使用的版本，没有“自适应”功能
+    ScalePad-电脑版.zip                    对外版：自适应相关的代码、文字、导出列全部剥掉，看不出有这个功能
     ScalePad-电脑版-内部（含自适应）.zip   首页可开启自适应
 
 只打包 git 管理的程序文件；证书、原始问卷（Scales/）、.git、iPad 专用文件都不会带出去。
+
+源码里自适应相关的地方用标记圈出来，打包时处理：
+    //@A{ … //@A}（HTML 里 <!--@A{--> … <!--@A}-->）  整段只在内部版保留
+    行尾 /*@A*/                                        这一行只在内部版保留
+    //@E 代码                                          对外版用这一行替换上面那行（内部版删掉）
+    <!--@A-->文字<!--@A-->                             行内一段只在内部版保留
 """
 
 from __future__ import annotations
 
 import datetime
+import re
 import subprocess
 import zipfile
 from pathlib import Path
@@ -27,9 +34,47 @@ EXCLUDE_FILES = {
 EXECUTABLE = (".command", ".sh")
 
 VERSIONS = [
-    ("ScalePad-电脑版-对外（无自适应）", "ScalePad", False),
+    ("ScalePad-电脑版", "ScalePad", False),
     ("ScalePad-电脑版-内部（含自适应）", "ScalePad-adaptive", True),
 ]
+# 对外版不带 README.md（里面有自适应说明），只带 README-FIRST.txt
+INTERNAL_ONLY_FILES = {"README.md"}
+STRIP_SUFFIXES = (".js", ".html", ".css")
+BLOCK_OPEN = {"//@A{", "<!--@A{-->", "/*@A{*/"}
+BLOCK_CLOSE = {"//@A}", "<!--@A}-->", "/*@A}*/"}
+LINE_MARK = re.compile(r"\s*(/\*@A\*/|<!--@A-->)\s*$")
+SPAN = re.compile(r"<!--@A-->(.*?)<!--@A-->")
+EXTERNAL_LINE = re.compile(r"^(\s*)//@E (.*)$")
+
+
+def strip_markers(text: str, adaptive: bool) -> str:
+    """按标记生成内部版 / 对外版的源码（见文件开头说明）"""
+    out = []
+    depth = 0
+    for line in text.split("\n"):
+        mark = line.strip()
+        if mark in BLOCK_OPEN:
+            depth += 1
+            continue
+        if mark in BLOCK_CLOSE:
+            depth -= 1
+            continue
+        if depth and not adaptive:
+            continue
+        external = EXTERNAL_LINE.match(line)
+        if external:
+            if not adaptive:
+                out.append(external.group(1) + external.group(2))
+            continue
+        line = SPAN.sub(r"\1" if adaptive else "", line)
+        if LINE_MARK.search(line):
+            if not adaptive:
+                continue
+            line = LINE_MARK.sub("", line)
+        out.append(line)
+    if depth:
+        raise SystemExit("自适应标记 //@A{ 和 //@A} 没有配对")
+    return "\n".join(out)
 GUIDE_NAME = "README-FIRST.txt"  # 包内文件名用英文：旧版 Windows 解压中文文件名可能乱码
 
 GUIDE = """ScalePad {label} 使用说明
@@ -69,7 +114,7 @@ Windows 安装时勾选“Add python.exe to PATH”），再执行 pip install o
   1 = 001 过于简单  2 = 002 太难  3 = 003 不熟悉内容  4 = 004 拒绝或疲劳  5 = 005 设备问题  6 = 009 其他
 - 数轴、点数比较评估：右下角“长按跳过”按住 1 秒可跳过；开始后的说明页按 A / Esc 或点“返回”可退回。
 {adaptive_note}
-更详细的说明见 README.md。
+{more}
 """
 
 ADAPTIVE_NOTE = """- 自适应：首页“自适应”选“开启”后，每部分先做难题；连续答对 5 题，其余题自动计为正确；
@@ -100,16 +145,24 @@ def write_entry(archive: zipfile.ZipFile, name: str, data: bytes) -> None:
 def build(label: str, folder: str, adaptive: bool, files: list[str]) -> Path:
     target = DIST / f"{label}.zip"
     config = (
-        "/* 发布配置：adaptive 为 false 时首页不显示“自适应”选项（标准版）。 */\n"
-        f"window.scalePadConfig = {{ adaptive: {'true' if adaptive else 'false'} }};\n"
+        "/* 发布配置 */\nwindow.scalePadConfig = { adaptive: true };\n" if adaptive
+        else "/* 发布配置 */\nwindow.scalePadConfig = {};\n"
     )
     guide = GUIDE.format(
-        label=label.split("-", 1)[-1], date=datetime.date.today().isoformat(),
+        label=label.split("-", 1)[-1] if "-" in label else label, date=datetime.date.today().isoformat(),
         adaptive_note=ADAPTIVE_NOTE if adaptive else "",
+        more="更详细的说明见 README.md。" if adaptive else "",
     )
     with zipfile.ZipFile(target, "w") as archive:
         for name in files:
-            data = config.encode("utf-8") if name == "config.js" else (ROOT / name).read_bytes()
+            if name in INTERNAL_ONLY_FILES and not adaptive:
+                continue
+            if name == "config.js":
+                data = config.encode("utf-8")
+            elif name.endswith(STRIP_SUFFIXES):
+                data = strip_markers((ROOT / name).read_text("utf-8"), adaptive).encode("utf-8")
+            else:
+                data = (ROOT / name).read_bytes()
             write_entry(archive, f"{folder}/{name}", data)
         # Windows 记事本对带 BOM 的 UTF-8 最稳
         write_entry(archive, f"{folder}/{GUIDE_NAME}", ("﻿" + guide.replace("\n", "\r\n")).encode("utf-8"))

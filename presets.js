@@ -171,7 +171,7 @@ const buildSection = (def) => {
       ...(fullParts.has(def.id) ? { fullPart: true } : {}),
       ...(def.needsLetters ? { needsLetters: true } : {}),
       ...(def.ageBand ? { ageBand: def.ageBand } : {}),
-      ...(def.hard?.includes(index + 1) ? { hard: true } : {}),
+      ...(def.hard?.includes(index + 1) ? { hard: true } : {}), /*@A*/
       ...(examples[def.id] ? { example: def.id } : {})
     };
   });
@@ -192,7 +192,7 @@ const withSequence = (def, folder) => ({
   })
 });
 
-/* 名人题（看图说名字、想象比较）：无论如何全部做完，自适应不省略 */
+/* 名人题（看图说名字、想象比较）：无论如何全部做完 */
 const fullParts = new Set(['celebrity', 'faceName']);
 
 /* 需要靠听、不能让患者看到题目的分区，由医生手持设备读题 */
@@ -679,6 +679,7 @@ const taskQuestion = (task, title, intro) => ({
   options: []
 });
 
+//@A{
 /* ---------------- 自适应用的难题 ----------------
  * 按分区名列出“难题”的题号（从 1 开始，按本分区原始顺序）。
  * 开启自适应后，每个部分先做这些难题；全部答对，本部分其余题直接记为正确。
@@ -747,16 +748,23 @@ const hardPerceptionB = {
   时钟识别测试: [3, 5, 6, 7, 10, 14, 15]
 };
 const withHard = (defs, map) => defs.map((def) => (map[def.name] ? { ...def, hard: map[def.name] } : def));
+//@A}
 
 window.scalePadPresets = [
   { name: 'BIP A 套｜先感知、再想象', group: 'bipSet', parts: ['BIP A｜视觉感知', 'BIP A｜视觉心理意象'],
-    questions: combinedSet(withHard(perceptionA, hardPerceptionA), withHard(imageryA, hardImageryA)).flatMap(buildSection) },
+    questions: combinedSet(withHard(perceptionA, hardPerceptionA), withHard(imageryA, hardImageryA)).flatMap(buildSection) }, /*@A*/
+    //@E questions: combinedSet(perceptionA, imageryA).flatMap(buildSection) },
   { name: 'BIP B 套｜先感知、再想象', group: 'bipSet', parts: ['BIP B｜视觉感知', 'BIP B｜视觉心理意象'],
-    questions: combinedSet(withHard(perceptionB, hardPerceptionB), withHard(imageryB, hardImageryB)).flatMap(buildSection) },
-  { name: 'BIP A｜视觉感知', group: 'bipPart', questions: withHard(doctorFirst(perceptionA), hardPerceptionA).flatMap(buildSection) },
-  { name: 'BIP A｜视觉心理意象', group: 'bipPart', questions: withHard(doctorFirst(imageryA), hardImageryA).flatMap(buildSection) },
-  { name: 'BIP B｜视觉感知', group: 'bipPart', questions: withHard(doctorFirst(perceptionB), hardPerceptionB).flatMap(buildSection) },
-  { name: 'BIP B｜视觉心理意象', group: 'bipPart', questions: withHard(doctorFirst(imageryB), hardImageryB).flatMap(buildSection) },
+    questions: combinedSet(withHard(perceptionB, hardPerceptionB), withHard(imageryB, hardImageryB)).flatMap(buildSection) }, /*@A*/
+    //@E questions: combinedSet(perceptionB, imageryB).flatMap(buildSection) },
+  { name: 'BIP A｜视觉感知', group: 'bipPart', questions: withHard(doctorFirst(perceptionA), hardPerceptionA).flatMap(buildSection) }, /*@A*/
+  //@E { name: 'BIP A｜视觉感知', group: 'bipPart', questions: doctorFirst(perceptionA).flatMap(buildSection) },
+  { name: 'BIP A｜视觉心理意象', group: 'bipPart', questions: withHard(doctorFirst(imageryA), hardImageryA).flatMap(buildSection) }, /*@A*/
+  //@E { name: 'BIP A｜视觉心理意象', group: 'bipPart', questions: doctorFirst(imageryA).flatMap(buildSection) },
+  { name: 'BIP B｜视觉感知', group: 'bipPart', questions: withHard(doctorFirst(perceptionB), hardPerceptionB).flatMap(buildSection) }, /*@A*/
+  //@E { name: 'BIP B｜视觉感知', group: 'bipPart', questions: doctorFirst(perceptionB).flatMap(buildSection) },
+  { name: 'BIP B｜视觉心理意象', group: 'bipPart', questions: withHard(doctorFirst(imageryB), hardImageryB).flatMap(buildSection) }, /*@A*/
+  //@E { name: 'BIP B｜视觉心理意象', group: 'bipPart', questions: doctorFirst(imageryB).flatMap(buildSection) },
   { name: 'VVIQ｜视觉想象生动性', questions: vviq },
   { name: 'PIT｜前瞻意象任务', questions: pit },
   { name: 'BAI｜贝克焦虑量表', questions: bai },

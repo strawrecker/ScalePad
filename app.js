@@ -7,7 +7,7 @@ const currentPresetName = (name) => renamedPresets[name] || name;
 const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
-const adaptiveStorageKey = 'scalepad_adaptive_v1';
+const adaptiveStorageKey = 'scalepad_adaptive_v1'; /*@A*/
 const buildTag = '2026-10-19k';
 let presets = loadPresets();
 
@@ -19,9 +19,11 @@ let ageBand = '';
 let epilepsy = '';
 let education = '';
 let lettersFamiliar = '';
+//@A{
 /* 发布包分“标准版 / 自适应版”，由 config.js 决定是否提供自适应 */
 const adaptiveAvailable = window.scalePadConfig?.adaptive !== false;
 let adaptive = adaptiveAvailable && localStorage.getItem(adaptiveStorageKey) === 'on';
+//@A}
 let skipScope = 'one';
 let sequenceTimer = null;
 let doctorScriptOpen = false;
@@ -315,12 +317,14 @@ function scaleScore(question, answer) {
 }
 
 function hasAnswer(record) {
-  return Boolean(record) && !record.skipped && (String(record.answer ?? '').trim() !== '' || Boolean(record.mark) || Boolean(record.adaptiveCredited));
+  return Boolean(record) && !record.skipped && (String(record.answer ?? '').trim() !== '' || Boolean(record.mark) || Boolean(record.adaptiveCredited)); /*@A*/
+  //@E return Boolean(record) && !record.skipped && (String(record.answer ?? '').trim() !== '' || Boolean(record.mark));
 }
 
-/* 自适应计为正确的题算对；有医生标记时以标记为准，否则按标准答案比对 */
+/* 自适应计为正确的题算对；有医生标记时以标记为准，否则按标准答案比对 */ /*@A*/
+//@E /* 有医生标记时以标记为准，否则按标准答案比对 */
 function recordCorrect(question, record) {
-  if (record.adaptiveCredited) return true;
+  if (record.adaptiveCredited) return true; /*@A*/
   if (record.mark) return record.mark === '1';
   return isCorrect(question, record.answer);
 }
@@ -332,17 +336,18 @@ function sectionStats() {
   activeQuestions.forEach((question, index) => {
     const key = question.planIndex ?? (question.section || '未分区');
     if (!groups.has(key)) {
-      groups.set(key, { code: partCode(order.length), name: question.section || '未分区', source: question.planPreset || '', scoring: question.scoring || 'auto', total: 0, answered: 0, correct: 0, credited: 0, stopped: 0, uncertain: 0, unseen: 0, score: 0, maxScore: 0, skipped: 0, skipCodes: {}, durations: [] });
+      groups.set(key, { code: partCode(order.length), name: question.section || '未分区', source: question.planPreset || '', scoring: question.scoring || 'auto', total: 0, answered: 0, correct: 0, credited: 0, stopped: 0, uncertain: 0, unseen: 0, score: 0, maxScore: 0, skipped: 0, skipCodes: {}, durations: [] }); /*@A*/
+      //@E groups.set(key, { code: partCode(order.length), name: question.section || '未分区', source: question.planPreset || '', scoring: question.scoring || 'auto', total: 0, answered: 0, correct: 0, uncertain: 0, unseen: 0, score: 0, maxScore: 0, skipped: 0, skipCodes: {} });
       order.push(key);
     }
     const group = groups.get(key);
     group.total += 1;
     if (group.scoring === 'scale' && Array.isArray(question.values)) group.maxScore += Math.max(...question.values);
     const record = answerByQuestion[index];
-    if (record && !adaptiveAutoRecord(record) && !record.skipped && record.answerDurationMs > 0) group.durations.push(record.answerDurationMs);
+    if (record && !adaptiveAutoRecord(record) && !record.skipped && record.answerDurationMs > 0) group.durations.push(record.answerDurationMs); /*@A*/
     if (record?.skipped) {
       group.skipped += 1;
-      if (record.adaptiveStopped) group.stopped += 1;
+      if (record.adaptiveStopped) group.stopped += 1; /*@A*/
       group.skipCodes[record.skipCode] = (group.skipCodes[record.skipCode] || 0) + 1;
       return;
     }
@@ -353,18 +358,22 @@ function sectionStats() {
       group.taskScore = record.answer;
       group.taskRT = record.taskResult?.totalResponseTimeMs;
     } else if (group.scoring === 'record') return;
-    else if (record.adaptiveCredited) { group.correct += 1; group.credited += 1; }
+    else if (record.adaptiveCredited) { group.correct += 1; group.credited += 1; } /*@A*/
     else if (isUnseen(question, record)) group.unseen += 1;
     else if (record.mark === '3') group.uncertain += 1;
     else if ((group.scoring === 'auto' || record.mark) && recordCorrect(question, record)) group.correct += 1;
   });
+//@A{
   return order.map((key) => {
     const group = groups.get(key);
     /* 自适应省下的时间：省略题数 × 本部分实际作答的中位用时 */
     group.savedMs = group.credited + group.stopped && group.durations.length ? (group.credited + group.stopped) * median(group.durations) : 0;
     return group;
   });
+//@A}
+  //@E return order.map((key) => groups.get(key));
 }
+//@A{
 
 function median(values) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -373,6 +382,7 @@ function median(values) {
 }
 
 const formatMinutes = (ms) => (ms >= 60000 ? `${(ms / 60000).toFixed(1)} 分钟` : `${Math.round(ms / 1000)} 秒`);
+//@A}
 
 function beginQuestionTelemetry(question) {
   currentQuestionTelemetry = {
@@ -419,7 +429,7 @@ function loadPresets() {
       const merged = defaultPresets.map((preset) => {
         const custom = savedByName.get(preset.name);
         savedByName.delete(preset.name);
-        return custom ? withDefaultHard(custom, preset) : clonePreset(preset);
+        return custom ? syncWithDefaults(custom, preset) : clonePreset(preset);
       });
       return [...merged, ...savedByName.values()];
     }
@@ -429,9 +439,8 @@ function loadPresets() {
   return defaultPresets.map(clonePreset);
 }
 
-/* 旧版本保存的问卷：按分区 + 题干对应到默认题库，补上“难题”标记（医生在编辑器里取消过的保持取消），
- * 屏幕显示文字也跟默认题库同步（编辑器不能单独改它） */
-function withDefaultHard(custom, preset) {
+/* 旧版本保存的问卷：按分区 + 题干对应到默认题库，屏幕显示文字等编辑器改不了的字段跟默认题库同步 */
+function syncWithDefaults(custom, preset) {
   const defaults = new Map(preset.questions.map((question) => [`${question.section}\n${question.text}`, question]));
   const bySection = (questions) => questions.reduce((map, question) => map.set(question.section, [...(map.get(question.section) || []), question]), new Map());
   const defaultSections = bySection(preset.questions);
@@ -468,7 +477,8 @@ function withDefaultHard(custom, preset) {
         else delete question[key];
       });
       if (base.unseenOption && !question.options.includes(base.unseenOption)) synced.options = [...question.options, base.unseenOption];
-      return { ...question, ...synced, ...('hard' in question || !base.hard ? {} : { hard: true }) };
+      return { ...question, ...synced, ...('hard' in question || !base.hard ? {} : { hard: true }) }; /*@A*/
+      //@E return { ...question, ...synced };
     })
   };
 }
@@ -625,9 +635,9 @@ function renderScaleList() {
   $('bandOlder').classList.toggle('selected', ageBand === 'older');
   document.querySelectorAll('[data-education]').forEach((button) => button.classList.toggle('selected', button.dataset.education === education));
   document.querySelectorAll('[data-gender]').forEach((button) => button.classList.toggle('selected', button.dataset.gender === patientGender));
-  $('adaptiveRow').classList.toggle('hidden', !adaptiveAvailable);
-  $('adaptiveOff').classList.toggle('selected', !adaptive);
-  $('adaptiveOn').classList.toggle('selected', adaptive);
+  $('adaptiveRow').classList.toggle('hidden', !adaptiveAvailable); /*@A*/
+  $('adaptiveOff').classList.toggle('selected', !adaptive); /*@A*/
+  $('adaptiveOn').classList.toggle('selected', adaptive); /*@A*/
   $('lettersYes').classList.toggle('selected', lettersFamiliar === 'yes');
   $('lettersNo').classList.toggle('selected', lettersFamiliar === 'no');
   $('lettersNote').textContent = lettersFamiliar === 'no'
@@ -638,6 +648,7 @@ function renderScaleList() {
 $('bandYoung').onclick = () => { ageBand = 'young'; renderScaleList(); };
 $('bandOlder').onclick = () => { ageBand = 'older'; renderScaleList(); };
 $('epilepsyNo').onclick = () => { epilepsy = 'no'; renderScaleList(); };
+//@A{
 const setAdaptive = (on) => {
   adaptive = on;
   try { localStorage.setItem(adaptiveStorageKey, on ? 'on' : 'off'); } catch (error) { /* 只是记住偏好 */ }
@@ -645,6 +656,7 @@ const setAdaptive = (on) => {
 };
 $('adaptiveOff').onclick = () => setAdaptive(false);
 $('adaptiveOn').onclick = () => setAdaptive(true);
+//@A}
 document.querySelectorAll('[data-gender]').forEach((button) => {
   button.onclick = () => { patientGender = button.dataset.gender; renderScaleList(); };
 });
@@ -740,9 +752,11 @@ async function chooseSaveFolder() {
 
 /* 选中顺序 = 作答顺序；板块（planIndex）用于分区统计和“跳过本部分”。
  * 恢复旧测试时用同样的规则重建题目，保证题号与记录对得上。 */
-function buildPlan(chosen, band, adaptiveMode = false, savedPlan = null) {
+function buildPlan(chosen, band, adaptiveMode = false, savedPlan = null) { /*@A*/
+//@E function buildPlan(chosen, band) {
   const steps = [];
-  let questions = [];
+  let questions = []; /*@A*/
+  //@E const questions = [];
   chosen.forEach((preset) => {
     preset.questions
       .filter((question) => !question.ageBand || question.ageBand === band)
@@ -755,6 +769,7 @@ function buildPlan(chosen, band, adaptiveMode = false, savedPlan = null) {
         questions.push({ ...question, planIndex: steps.length - 1, planPreset: preset.name });
       });
   });
+//@A{
   if (adaptiveMode) {
     /* 自适应：可自适应的部分把难题排到前面（各自保持原顺序）。
      * 恢复旧测试时按当时记下的部分来排，规则改过也不会让题号错位。 */
@@ -770,6 +785,7 @@ function buildPlan(chosen, band, adaptiveMode = false, savedPlan = null) {
       return [...part.filter((question) => question.hard), ...part.filter((question) => !question.hard)];
     });
   }
+//@A}
   return { plan: steps, questions };
 }
 
@@ -788,6 +804,7 @@ function alignToSavedPlan(built, savedPlan) {
   return { plan, questions };
 }
 
+//@A{
 /* 有对错、题数多于 5 题的部分才走自适应；名人题（fullPart）无论如何全部做完 */
 function isAdaptivePart(part) {
   return part.length > adaptiveMinItems
@@ -867,6 +884,7 @@ async function applyAdaptive(planIndex) {
   rebuildAnswers();
   return results.every(Boolean);
 }
+//@A}
 
 async function startSession() {
   if (isStarting) return;
@@ -903,7 +921,8 @@ async function startSession() {
     unlock();
     return;
   }
-  ({ plan: activePlan, questions: activeQuestions } = buildPlan(chosen, ageBand, adaptive));
+  ({ plan: activePlan, questions: activeQuestions } = buildPlan(chosen, ageBand, adaptive)); /*@A*/
+  //@E ({ plan: activePlan, questions: activeQuestions } = buildPlan(chosen, ageBand));
   if (!activeQuestions.length) {
     window.alert('所选量表没有可作答的题目。');
     unlock();
@@ -930,12 +949,13 @@ async function startSession() {
       epilepsy,
       education,
       lettersFamiliar,
-      adaptive,
+      adaptive, /*@A*/
       questionCount: activeQuestions.length,
       startedAt: new Date(sessionStartedAt).toISOString(),
       status: 'active'
     });
-    if (!(await writeEvent({ type: 'session_started', patient, age: patientAge || null, ...patientProfile(), preset: planLabel(), ageBand, epilepsy, education, lettersFamiliar, adaptive, questionCount: activeQuestions.length }))) throw new Error('无法写入测试开始记录');
+    if (!(await writeEvent({ type: 'session_started', patient, age: patientAge || null, ...patientProfile(), preset: planLabel(), ageBand, epilepsy, education, lettersFamiliar, adaptive, questionCount: activeQuestions.length }))) throw new Error('无法写入测试开始记录'); /*@A*/
+    //@E if (!(await writeEvent({ type: 'session_started', patient, age: patientAge || null, ...patientProfile(), preset: planLabel(), ageBand, epilepsy, education, lettersFamiliar, questionCount: activeQuestions.length }))) throw new Error('无法写入测试开始记录');
   } catch (error) {
     reportStorageFailure(error, '测试开始记录');
     unlock();
@@ -1026,10 +1046,10 @@ function collectEditorDraft() {
   const questions = [...$('questionEditor').querySelectorAll('.question-edit')].map((row) => {
     const base = source[Number(row.dataset.index)] || {};
     const text = row.querySelector('.question-text').value.trim() || '未填写题目';
-    const hardBox = row.querySelector('.hard-input');
+    const hardBox = row.querySelector('.hard-input'); /*@A*/
     return {
       ...base,
-      ...(hardBox ? { hard: hardBox.checked } : {}),
+      ...(hardBox ? { hard: hardBox.checked } : {}), /*@A*/
       response: base.response || 'choice',
       text,
       /* 题干改了就同步屏幕文字与朗读文字，除非它们本来就是另外写的 */
@@ -1096,6 +1116,7 @@ function renderEditorForm() {
       renderEditorForm();
     };
     head.append(title);
+//@A{
     /* 有对错的题可勾选“难题”：自适应模式下先做难题 */
     if (question.scoring === 'auto' || question.scoring === 'manual' || !question.scoring) {
       const hardLabel = document.createElement('label');
@@ -1107,6 +1128,7 @@ function renderEditorForm() {
       hardLabel.append(hardBox, '难题');
       head.append(hardLabel);
     }
+//@A}
     head.append(remove);
     const text = document.createElement(question.response === 'text' ? 'textarea' : 'input');
     text.className = 'question-text';
@@ -1328,10 +1350,12 @@ function renderQuestion() {
   if (!audioOnly) doctorScriptOpen = false;
   renderDoctorScript(question);
   const skipped = savedAnswer?.skipped;
-  const credited = savedAnswer?.adaptiveCredited;
+  const credited = savedAnswer?.adaptiveCredited; /*@A*/
   /* 只给医生看代码，不写原因，患者看不出为什么跳过（代码含义在首页和结果页） */
-  $('skipTag').textContent = skipped ? `已记录 ${savedAnswer.skipCode}` : credited ? '已记录 A' : '';
-  $('skipTag').classList.toggle('hidden', !skipped && !credited);
+  $('skipTag').textContent = skipped ? `已记录 ${savedAnswer.skipCode}` : credited ? '已记录 A' : ''; /*@A*/
+  //@E $('skipTag').textContent = skipped ? `已记录 ${savedAnswer.skipCode}` : '';
+  $('skipTag').classList.toggle('hidden', !skipped && !credited); /*@A*/
+  //@E $('skipTag').classList.toggle('hidden', !skipped);
   stopSpeaking();
   $('questionMedia').innerHTML = '';
   $('questionMedia').classList.remove('stimulus');
@@ -1642,7 +1666,7 @@ async function commitPendingAnswer() {
   rebuildAnswers();
   pendingAnswer = null;
   currentQuestionTelemetry = null;
-  if (!(await applyAdaptive(activeQuestions[pending.index].planIndex))) setQuizStatus('自适应计分未能全部写入本机记录，请检查存储。');
+  if (!(await applyAdaptive(activeQuestions[pending.index].planIndex))) setQuizStatus('自适应计分未能全部写入本机记录，请检查存储。'); /*@A*/
   return true;
 }
 
@@ -1719,10 +1743,12 @@ function rebuildAnswers() {
     .map((indexKey) => answerByQuestion[indexKey]);
 }
 
-/* 预先自动跳过的题（如不熟悉字母）和自适应计为正确的题在顺序作答时直接越过；从“部分”菜单仍可进入补做 */
+/* 预先自动跳过的题（如不熟悉字母）和自适应计为正确的题在顺序作答时直接越过；从“部分”菜单仍可进入补做 */ /*@A*/
+//@E /* 预先自动跳过的题（如不熟悉字母）在顺序作答时直接越过；从“部分”菜单仍可进入补做 */
 function nextOpenIndex(from, step = 1) {
   let index = from;
-  while (index >= 0 && index < activeQuestions.length && (answerByQuestion[index]?.autoSkipped || answerByQuestion[index]?.adaptiveCredited || answerByQuestion[index]?.adaptiveStopped)) index += step;
+  while (index >= 0 && index < activeQuestions.length && (answerByQuestion[index]?.autoSkipped || answerByQuestion[index]?.adaptiveCredited || answerByQuestion[index]?.adaptiveStopped)) index += step; /*@A*/
+  //@E while (index >= 0 && index < activeQuestions.length && answerByQuestion[index]?.autoSkipped) index += step;
   return index;
 }
 
@@ -1755,10 +1781,12 @@ async function recordSkips(indexes, code, auto) {
     });
   }));
   rebuildAnswers();
+//@A{
   if (!auto) {
     const parts = new Set(indexes.map((index) => activeQuestions[index].planIndex));
     for (const planIndex of parts) results.push(await applyAdaptive(planIndex));
   }
+//@A}
   return results.every(Boolean);
 }
 
@@ -2112,7 +2140,8 @@ async function loadSession(id) {
     return false;
   }
   const chosen = [...new Set(record.plan.map((step) => currentPresetName(step.preset)))].map((name) => presets.find((preset) => preset.name === name));
-  const built = chosen.every(Boolean) ? alignToSavedPlan(buildPlan(chosen, record.ageBand, Boolean(record.adaptive), record.plan), record.plan) : null;
+  const built = chosen.every(Boolean) ? alignToSavedPlan(buildPlan(chosen, record.ageBand, Boolean(record.adaptive), record.plan), record.plan) : null; /*@A*/
+  //@E const built = chosen.every(Boolean) ? alignToSavedPlan(buildPlan(chosen, record.ageBand), record.plan) : null;
   if (!built || built.questions.length !== record.questionCount) {
     window.alert('这次测试用到的问卷已被修改或删除，题目对不上，无法恢复。原始记录仍保存在本机。');
     return false;
@@ -2139,8 +2168,9 @@ async function loadSession(id) {
   answerByQuestion = {};
   seenGates = new Set();
   events.forEach(({ id: eventId, sessionId: owner, sequence, recordedAt, type, ...fields }) => {
-    if (type === 'answer_committed' || type === 'question_skipped' || type === 'adaptive_credited') answerByQuestion[fields.index] = fields;
-    else if (type === 'adaptive_revoked') delete answerByQuestion[fields.index];
+    if (type === 'answer_committed' || type === 'question_skipped' || type === 'adaptive_credited') answerByQuestion[fields.index] = fields; /*@A*/
+    //@E if (type === 'answer_committed' || type === 'question_skipped') answerByQuestion[fields.index] = fields;
+    else if (type === 'adaptive_revoked') delete answerByQuestion[fields.index]; /*@A*/
     else if (type === 'gate_dismissed' && activeQuestions[fields.questionIndex]) seenGates.add(activeQuestions[fields.questionIndex].planIndex);
   });
   reopenGate = null;
@@ -2185,8 +2215,9 @@ async function sessionAnsweredCount(session) {
   if (answeredCache.has(key)) return answeredCache.get(key);
   const answered = new Set();
   (await idbGetSessionEvents(session.id)).forEach((event) => {
-    if (event.type === 'answer_committed' || event.type === 'question_skipped' || event.type === 'adaptive_credited') answered.add(event.index);
-    else if (event.type === 'adaptive_revoked') answered.delete(event.index);
+    if (event.type === 'answer_committed' || event.type === 'question_skipped' || event.type === 'adaptive_credited') answered.add(event.index); /*@A*/
+    //@E if (event.type === 'answer_committed' || event.type === 'question_skipped') answered.add(event.index);
+    else if (event.type === 'adaptive_revoked') answered.delete(event.index); /*@A*/
   });
   answeredCache.set(key, answered.size);
   return answered.size;
@@ -2310,7 +2341,8 @@ function renderSectionResults() {
   const stats = sectionStats();
   const rows = stats.map((group) => {
     const unanswered = group.total - group.answered - group.skipped;
-    const skipNote = [group.credited + group.stopped ? `自适应省略 ${group.credited + group.stopped} 题${group.savedMs ? `，约省 ${formatMinutes(group.savedMs)}` : ''}` : '', group.credited ? `连续答对 ${adaptivePassRight} 题，${group.credited} 题自动计为正确` : '', group.stopped ? `连续答错，${group.stopped} 题自动跳过` : '', group.skipped ? `跳过 ${group.skipped}（${formatSkipCodes(group.skipCodes)}）` : '', unanswered ? `未作答 ${unanswered}` : '', group.uncertain ? `标记 3（不确定）${group.uncertain}，不计入正确率` : '', group.unseen ? `没见过 ${group.unseen}，不计入正确率` : ''].filter(Boolean).join('<br>');
+    const skipNote = [group.credited + group.stopped ? `自适应省略 ${group.credited + group.stopped} 题${group.savedMs ? `，约省 ${formatMinutes(group.savedMs)}` : ''}` : '', group.credited ? `连续答对 ${adaptivePassRight} 题，${group.credited} 题自动计为正确` : '', group.stopped ? `连续答错，${group.stopped} 题自动跳过` : '', group.skipped ? `跳过 ${group.skipped}（${formatSkipCodes(group.skipCodes)}）` : '', unanswered ? `未作答 ${unanswered}` : '', group.uncertain ? `标记 3（不确定）${group.uncertain}，不计入正确率` : '', group.unseen ? `没见过 ${group.unseen}，不计入正确率` : ''].filter(Boolean).join('<br>'); /*@A*/
+    //@E const skipNote = [group.skipped ? `跳过 ${group.skipped}（${formatSkipCodes(group.skipCodes)}）` : '', unanswered ? `未作答 ${unanswered}` : '', group.uncertain ? `标记 3（不确定）${group.uncertain}，不计入正确率` : '', group.unseen ? `没见过 ${group.unseen}，不计入正确率` : ''].filter(Boolean).join('<br>');
     const judged = group.answered - group.uncertain - group.unseen;
     let result;
     let rate;
@@ -2338,10 +2370,13 @@ function renderSectionResults() {
   const totalRow = scored.length
     ? `<tr class="total"><td>合计（不含量表）</td><td class="result">${totals.correct}/${totals.answered} (${totals.total})</td><td class="rate">${formatRate(totals.correct, totals.answered)}</td><td class="skip"></td></tr>`
     : '';
+//@A{
   const omitted = stats.reduce((sum, group) => sum + group.credited + group.stopped, 0);
   const savedMs = stats.reduce((sum, group) => sum + group.savedMs, 0);
   const adaptiveNote = activePlan.some((step) => step.adaptive) ? `<strong>自适应共省略 ${omitted} 题${savedMs ? `，约省 ${formatMinutes(savedMs)}` : ''}。</strong>只在结果明确时省略题目，看不出来就全部做完；名人题全部做完。每部分先做难题：连续答对 ${adaptivePassRight} 题则其余题自动计为正确；至少做满 ${adaptiveMinItems} 题后连续答错 ${adaptiveStopWrong} 题则其余题按 002 自动跳过（不看用时）。“省时”按本部分实际作答的中位用时估算。<br>` : '';
-  const legend = `<p class="muted">${adaptiveNote}医生标记：${markLegend}<br>跳过代码：${skipReasons.map(([code, label]) => `${code} ${label}`).join('；')}</p>`;
+//@A}
+  const legend = `<p class="muted">${adaptiveNote}医生标记：${markLegend}<br>跳过代码：${skipReasons.map(([code, label]) => `${code} ${label}`).join('；')}</p>`; /*@A*/
+  //@E const legend = `<p class="muted">医生标记：${markLegend}<br>跳过代码：${skipReasons.map(([code, label]) => `${code} ${label}`).join('；')}</p>`;
   $('sectionResults').innerHTML = `<table class="section-table"><thead><tr><th>分区</th><th>答对/计入（总题数）</th><th>正确率（计入题数）</th><th>跳过（代码×题数）</th></tr></thead><tbody>${rows.join('')}${totalRow}</tbody></table>${legend}`;
 }
 
@@ -2462,7 +2497,7 @@ async function download(extension, type) {
     epilepsy,
     education,
     lettersFamiliar,
-    adaptive: activePlan.some((step) => step.adaptive),
+    adaptive: activePlan.some((step) => step.adaptive), /*@A*/
     skipReasons: Object.fromEntries(skipReasons),
     markLabels,
     preset: planLabel(),
@@ -2477,7 +2512,7 @@ async function download(extension, type) {
     const question = activeQuestions[answer.questionIndex];
     if (!question) return ['', '', ''];
     if (answer.skipped) return ['', '', question.correct ?? ''];
-    if (answer.adaptiveCredited) return ['1', '', question.correct ?? ''];
+    if (answer.adaptiveCredited) return ['1', '', question.correct ?? '']; /*@A*/
     if (question.scoring === 'scale') return ['', String(scaleScore(question, answer.answer)), ''];
     if (question.scoring === 'record' || question.scoring === 'task') return ['', '', ''];
     if (answer.mark === '3' || isUnseen(question, answer) || (question.scoring === 'manual' && !answer.mark)) return ['', '', question.correct ?? ''];
@@ -2487,14 +2522,18 @@ async function download(extension, type) {
   const answerRows = answers.map((answer) => {
     const [correct, score, expected] = describe(answer);
     return [patient, patientName, patientGender, patientAge, patientOccupation, ageBand, education, lettersFamiliar, planLabel(), answer.questionIndex, answer.section, answer.question, answer.answer, answer.mark, answer.markLabel, expected, correct, score,
-      answer.skipCode, answer.skipReason, answer.time, answer.answerDurationMs, answer.confirmationDelayMs, answer.reactionTimeMs, answer.answerChanges, answer.audioPlayCount, answer.adaptiveCredited ? '1' : '', answer.adaptiveStopped ? '1' : '', activeQuestions[answer.questionIndex]?.hard ? '1' : ''].map(quote).join(',');
+      answer.skipCode, answer.skipReason, answer.time, answer.answerDurationMs, answer.confirmationDelayMs, answer.reactionTimeMs, answer.answerChanges, answer.audioPlayCount, answer.adaptiveCredited ? '1' : '', answer.adaptiveStopped ? '1' : '', activeQuestions[answer.questionIndex]?.hard ? '1' : ''].map(quote).join(','); /*@A*/
+      //@E answer.skipCode, answer.skipReason, answer.time, answer.answerDurationMs, answer.confirmationDelayMs, answer.reactionTimeMs, answer.answerChanges, answer.audioPlayCount].map(quote).join(',');
   });
-  const statRows = stats.map((group) => [`${group.code} 部分`, group.name, group.scoring, group.correct, group.answered, group.uncertain, group.unseen, group.skipped, formatSkipCodes(group.skipCodes), group.total, group.score, group.credited, group.stopped].map(quote).join(','));
+  const statRows = stats.map((group) => [`${group.code} 部分`, group.name, group.scoring, group.correct, group.answered, group.uncertain, group.unseen, group.skipped, formatSkipCodes(group.skipCodes), group.total, group.score, group.credited, group.stopped].map(quote).join(',')); /*@A*/
+  //@E const statRows = stats.map((group) => [`${group.code} 部分`, group.name, group.scoring, group.correct, group.answered, group.uncertain, group.unseen, group.skipped, formatSkipCodes(group.skipCodes), group.total, group.score].map(quote).join(','));
   const content = type === 'json'
     ? JSON.stringify(data, null, 2)
-    : '\uFEFFpatient,name,gender,age,occupation,ageBand,education,lettersFamiliar,preset,questionIndex,section,question,answer,mark,markLabel,expected,correct,score,skipCode,skipReason,time,answerDurationMs,confirmationDelayMs,reactionTimeMs,answerChanges,audioPlayCount,adaptiveCredited,adaptiveStopped,hardItem\n'
+    : '\uFEFFpatient,name,gender,age,occupation,ageBand,education,lettersFamiliar,preset,questionIndex,section,question,answer,mark,markLabel,expected,correct,score,skipCode,skipReason,time,answerDurationMs,confirmationDelayMs,reactionTimeMs,answerChanges,audioPlayCount,adaptiveCredited,adaptiveStopped,hardItem\n' /*@A*/
+    //@E : '\uFEFFpatient,name,gender,age,occupation,ageBand,education,lettersFamiliar,preset,questionIndex,section,question,answer,mark,markLabel,expected,correct,score,skipCode,skipReason,time,answerDurationMs,confirmationDelayMs,reactionTimeMs,answerChanges,audioPlayCount\n'
       + answerRows.join('\n')
-      + '\n\n类型,分区,评分方式,答对,已答,标记不确定,没见过,跳过,跳过代码,总题数,量表总分,自适应计为正确,自适应停止跳过\n'
+      + '\n\n类型,分区,评分方式,答对,已答,标记不确定,没见过,跳过,跳过代码,总题数,量表总分,自适应计为正确,自适应停止跳过\n' /*@A*/
+      //@E + '\n\n类型,分区,评分方式,答对,已答,标记不确定,没见过,跳过,跳过代码,总题数,量表总分\n'
       + statRows.join('\n');
   const filename = `${safeFilePart(patient)}_${sessionId || Date.now()}.${extension}`;
   const mime = type === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8';
