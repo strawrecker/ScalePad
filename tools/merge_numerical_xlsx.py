@@ -1,9 +1,11 @@
-"""把 iPad（ScalePad）导出的数轴/点数实验 xlsx 追加进汇总表，效果与原 PsychoPy 程序相同。
+"""把 ScalePad 导出的数轴评估 / 点数比较评估 xlsx 追加进汇总表，效果与原 PsychoPy 程序相同。
 
-原程序每做完一次，就在 “数轴实验_results.xlsx” / “点数实验_results.xlsx” 里新建一个以完成时间命名的 sheet。
+原程序每做完一次，就在汇总表里新建一个以完成时间命名的 sheet。汇总表现在叫 “数轴评估_results.xlsx” / “点数评估_results.xlsx”；
+目标文件夹里只有原程序的旧汇总表（“数轴实验_results.xlsx” / “点数实验_results.xlsx”）时，会先把它改成新名字再追加，数据不会分成两份。
 ScalePad 每次导出一个只含这一个 sheet 的文件，文件名形如：
-    数轴实验_P001_2026-10-11_14-03-22.xlsx
-    点数实验_P001_2026-10-11_14-10-05.xlsx
+    数轴评估_P001_2026-10-11_14-03-22.xlsx
+    点数评估_P001_2026-10-11_14-10-05.xlsx
+（旧版导出的 “数轴实验_…” “点数实验_…” 文件也可以追加。）
 本脚本按文件名前缀找到对应的汇总表，把 sheet 原样复制进去（同名 sheet 已存在则跳过，可重复运行）。
 
 用法：
@@ -24,14 +26,22 @@ try:
 except ImportError:
     sys.exit("缺少 openpyxl，请先执行：pip3 install openpyxl")
 
-WORKBOOKS = {"数轴实验": "数轴实验_results.xlsx", "点数实验": "点数实验_results.xlsx"}
+WORKBOOKS = {"数轴评估": "数轴评估_results.xlsx", "点数评估": "点数评估_results.xlsx"}
+OLD_PREFIX = {"数轴实验": "数轴评估", "点数实验": "点数评估"}
+OLD_WORKBOOKS = {"数轴评估": "数轴实验_results.xlsx", "点数评估": "点数实验_results.xlsx"}
 
 
 def merge(source: Path, dest_dir: Path) -> str:
     prefix = source.name.split("_", 1)[0]
+    prefix = OLD_PREFIX.get(prefix, prefix)
     if prefix not in WORKBOOKS:
-        return f"跳过 {source.name}：文件名不是以“数轴实验_”或“点数实验_”开头"
+        return f"跳过 {source.name}：文件名不是以“数轴评估_”或“点数评估_”开头"
     target = dest_dir / WORKBOOKS[prefix]
+    renamed = ""
+    old = dest_dir / OLD_WORKBOOKS[prefix]
+    if not target.exists() and old.exists():
+        old.rename(target)
+        renamed = f"（已把 {old.name} 改名为 {target.name}）"
     src_wb = openpyxl.load_workbook(source)
     if target.exists():
         dst_wb = openpyxl.load_workbook(target)
@@ -49,11 +59,11 @@ def merge(source: Path, dest_dir: Path) -> str:
     if not added:
         return f"{source.name}：{target.name} 里已有同名 sheet，未重复追加"
     dst_wb.save(target)
-    return f"{source.name} → {target}（新增 sheet：{', '.join(added)}）"
+    return f"{source.name} → {target}（新增 sheet：{', '.join(added)}）{renamed}"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="把 ScalePad 导出的数轴/点数实验结果追加进汇总 xlsx")
+    parser = argparse.ArgumentParser(description="把 ScalePad 导出的数轴评估 / 点数比较评估结果追加进汇总 xlsx")
     parser.add_argument("files", nargs="+", type=Path)
     parser.add_argument("--dest", type=Path, default=Path(os.path.expanduser("~")) / "Desktop" / "numerical cognition")
     args = parser.parse_args()

@@ -1,4 +1,4 @@
-/* 数轴实验 / 点数比较实验：复刻 ~/Desktop/project 里的 PsychoPy 程序（数轴实验.py、点数比较实验.py）。
+/* 数轴评估 / 点数比较评估：复刻 ~/Desktop/project 里的 PsychoPy 程序（数轴实验.py、点数比较实验.py）。
  * 流程、参数、计分和 xlsx 输出格式都照原程序，不要随手“修正”，否则和已有数据对不上：
  *   - 数轴：正确位置 = -300 + (数字-1)*6（100 对应 294，不是线端 300），总分 = 100*(1-总偏差/(600*题数))
  *   - 点数：每题限时 10 秒（原指导语写 5 秒，代码是 10 秒）；比值与 1 相差 ≤0.10 的题选哪边都算对
@@ -184,7 +184,7 @@
     }
   }
 
-  /* ------------------- 数轴实验 ------------------- */
+  /* ------------------- 数轴评估 ------------------- */
   const NUMBERS = [2, 4, 9, 11, 14, 17, 23, 26, 31, 38, 44, 45, 52, 59, 61, 66, 73, 78, 84, 86, 92, 99];
 
   /* 鼠标：红点跟随光标，按下即确认（同原程序）。
@@ -280,8 +280,8 @@
     const sheetName = sheetStamp();
     return {
       task: 'numberline',
-      title: '数轴实验',
-      workbookName: '数轴实验_results.xlsx',
+      title: '数轴评估',
+      workbookName: '数轴评估_results.xlsx',
       sheetName,
       accuracy,
       totalResponseTimeMs: totalRT,
@@ -296,7 +296,7 @@
     };
   }
 
-  /* ------------------- 点数比较实验 ------------------- */
+  /* ------------------- 点数比较评估 ------------------- */
   const DOT_TRIALS = 20;
   const RATIOS = [0.63, 0.75, 0.88];
   const ERROR_MARGIN = 0.10;
@@ -372,8 +372,8 @@
     const sheetName = sheetStamp();
     return {
       task: 'dots',
-      title: '点数比较实验',
-      workbookName: '点数实验_results.xlsx',
+      title: '点数比较评估',
+      workbookName: '点数评估_results.xlsx',
       sheetName,
       accuracy,
       totalResponseTimeMs: totalRT,

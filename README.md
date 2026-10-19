@@ -97,7 +97,7 @@ python3 tools/build_release.py
 - 从答题页或结果页回到首页时，患者信息表单会清空，避免给同一位患者误建第二份测试。
 - 如果测试用到的问卷在编辑器里被改过题目数量，这次测试将无法恢复（会提示），原始记录仍保留在本机。
 
-## 认知任务：数轴实验、点数比较实验
+## 认知任务：数轴评估、点数比较评估
 
 在量表列表的「认知任务」组里勾选。答到这一题时医生先讲指导语，再点「开始」进入全屏任务；做完自动回到答题流程。
 
@@ -110,11 +110,11 @@ python3 tools/build_release.py
   - 点数比较：点屏幕左半边选左、右半边选右；接键盘时也可用 ← →。
   - 与原程序（鼠标/键盘）相比，触控会改变反应时，数轴的落点精度也可能略有差异；每次的实际操作方式（touch / mouse / keyboard）记录在 JSON 的 `meta.inputTypes` 里，合并分析时请区分设备。
 - **中止**：任务中左上角的 × 长按 1.5 秒可中止，本题不记录结果，可重新开始或跳过。
-- **导出**：结果页的「导出数轴实验（xlsx）」「导出点数比较实验（xlsx）」生成与原程序格式相同的工作表（sheet 名为完成时间，表头、数据类型一致），文件名如 `数轴实验_P001_2026-10-11_14-03-22.xlsx`。
-- **追加进汇总表**：原程序把每次结果追加到 `~/Desktop/numerical cognition/数轴实验_results.xlsx`、`点数实验_results.xlsx`。把导出文件传到 Mac 后运行：
+- **导出**：结果页的「导出数轴评估（xlsx）」「导出点数比较评估（xlsx）」生成与原程序格式相同的工作表（sheet 名为完成时间，表头、数据类型一致），文件名如 `数轴评估_P001_2026-10-11_14-03-22.xlsx`。
+- **追加进汇总表**：汇总表是 `~/Desktop/numerical cognition/数轴评估_results.xlsx`、`点数评估_results.xlsx`。原程序的旧汇总表（`数轴实验_results.xlsx`、`点数实验_results.xlsx`）在第一次追加时会自动改成新名字，原有 sheet 都保留；旧版导出的 `数轴实验_…`、`点数实验_…` 文件也能追加。把导出文件传到 Mac 后运行：
 
   ```zsh
-  python3 tools/merge_numerical_xlsx.py ~/Downloads/数轴实验_*.xlsx ~/Downloads/点数实验_*.xlsx
+  python3 tools/merge_numerical_xlsx.py ~/Downloads/数轴评估_*.xlsx ~/Downloads/点数评估_*.xlsx
   # 追加到某位患者的文件夹：加 --dest "~/Desktop/numerical cognition/患者姓名/患者姓名pre"
   ```
 
@@ -136,7 +136,7 @@ python3 tools/build_release.py
 | `index.html` | 页面结构和样式 |
 | `app.js` | 全部交互逻辑：答题、评分、存储、恢复、导出 |
 | `presets.js` | 内置问卷题库（含两个认知任务的入口） |
-| `tasks.js` | 数轴实验、点数比较实验的全屏任务 |
+| `tasks.js` | 数轴评估、点数比较评估的全屏任务 |
 | `xlsx.js` | 不依赖外部库的 xlsx 生成，格式与 openpyxl 一致 |
 | `tools/merge_numerical_xlsx.py` | 在 Mac 上把导出的任务结果追加进 `numerical cognition` 汇总表 |
 | `sw.js` | Service Worker，离线缓存（代码先联网、断网用缓存；图片缓存优先） |

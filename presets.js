@@ -741,8 +741,8 @@ window.scalePadPresets = [
   { name: 'PIT｜前瞻意象任务', questions: pit },
   { name: 'BAI｜贝克焦虑量表', questions: bai },
   { name: 'SDS｜抑郁自评量表', questions: sds },
-  { name: '数轴实验', group: 'task', questions: [taskQuestion('numberline', '数轴实验', '22 题：在 1–100 的数轴上标出数字的位置。触屏时手指可按在数轴下方，左右拖动红点，抬起手指确认。')] },
-  { name: '点数比较实验', group: 'task', questions: [taskQuestion('dots', '点数比较实验', '20 题：判断左右哪边点多，每题限时 10 秒。点屏幕左半边选左，右半边选右（接键盘时也可用 ← →）。')] },
+  { name: '数轴评估', group: 'task', questions: [taskQuestion('numberline', '数轴评估', '22 题：在 1–100 的数轴上标出数字的位置。触屏时手指可按在数轴下方，左右拖动红点，抬起手指确认。')] },
+  { name: '点数比较评估', group: 'task', questions: [taskQuestion('dots', '点数比较评估', '20 题：判断左右哪边点多，每题限时 10 秒。点屏幕左半边选左，右半边选右（接键盘时也可用 ← →）。')] },
   { name: 'DSRS｜儿童抑郁自评', group: 'child', questions: dsrs },
   { name: 'SCARED｜儿童焦虑筛查', group: 'child', questions: scared }
 ];

@@ -1,10 +1,14 @@
 const defaultPresets = window.scalePadPresets || [];
+/* 改过名的问卷：旧名字 → 新名字（旧的保存、上次的选择、没做完的测试都按新名字找） */
+const renamedPresets = { 数轴实验: '数轴评估', 点数比较实验: '点数比较评估' };
+const currentPresetName = (name) => renamedPresets[name] || name;
+
 
 const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
 const adaptiveStorageKey = 'scalepad_adaptive_v1';
-const buildTag = '2026-10-19e';
+const buildTag = '2026-10-19f';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -397,7 +401,7 @@ function loadPresets() {
   try {
     const saved = JSON.parse(localStorage.getItem(presetStorageKey));
     if (Array.isArray(saved) && saved.length && saved.every(isValidPreset)) {
-      const savedByName = new Map(saved.map((preset) => [preset.name, preset]));
+      const savedByName = new Map(saved.map((preset) => [currentPresetName(preset.name), { ...preset, name: currentPresetName(preset.name) }]));
       const merged = defaultPresets.map((preset) => {
         const custom = savedByName.get(preset.name);
         savedByName.delete(preset.name);
@@ -467,7 +471,7 @@ function savePresets() {
 function loadPlan() {
   try {
     const saved = JSON.parse(localStorage.getItem(planStorageKey));
-    if (Array.isArray(saved)) return mergeIntoSets(saved.filter((name) => typeof name === 'string'));
+    if (Array.isArray(saved)) return mergeIntoSets(saved.filter((name) => typeof name === 'string').map(currentPresetName));
   } catch (error) {
     console.warn('无法读取上次选择的量表。', error);
   }
@@ -742,7 +746,7 @@ function buildPlan(chosen, band, adaptiveMode = false) {
 
 /* 题库调整过部分顺序后，恢复旧测试仍按当时的部分顺序排题，保证题号与记录对得上 */
 function alignToSavedPlan(built, savedPlan) {
-  const key = (step) => `${step.preset}\n${step.section}`;
+  const key = (step) => `${currentPresetName(step.preset)}\n${renamedPresets[step.section] || step.section}`;
   const groups = new Map(built.plan.map((step, index) => [key(step), { step, questions: built.questions.filter((question) => question.planIndex === index) }]));
   if (!Array.isArray(savedPlan) || savedPlan.length !== built.plan.length || groups.size !== built.plan.length || !savedPlan.every((step) => groups.has(key(step)))) return built;
   const plan = [];
@@ -1974,7 +1978,7 @@ async function loadSession(id) {
     window.alert('这条记录缺少量表信息（旧版本创建），无法恢复。');
     return false;
   }
-  const chosen = [...new Set(record.plan.map((step) => step.preset))].map((name) => presets.find((preset) => preset.name === name));
+  const chosen = [...new Set(record.plan.map((step) => currentPresetName(step.preset)))].map((name) => presets.find((preset) => preset.name === name));
   const built = chosen.every(Boolean) ? alignToSavedPlan(buildPlan(chosen, record.ageBand, Boolean(record.adaptive)), record.plan) : null;
   if (!built || built.questions.length !== record.questionCount) {
     window.alert('这次测试用到的问卷已被修改或删除，题目对不上，无法恢复。原始记录仍保存在本机。');
