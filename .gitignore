@@ -22,3 +22,6 @@ assets/faces-b/
 # Local source questionnaire folder
 Scale/
 Scales/
+
+# Release packages
+dist/

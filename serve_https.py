@@ -9,6 +9,13 @@ import ssl
 from pathlib import Path
 
 
+class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self) -> None:
+        # 程序文件每次都向服务器确认，避免 iPad 沿用旧版页面
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
+
 class ReusableHTTPServer(http.server.ThreadingHTTPServer):
     allow_reuse_address = True
 
@@ -22,7 +29,7 @@ def main() -> None:
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parent
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(root))
+    handler = functools.partial(NoCacheHandler, directory=str(root))
     server = ReusableHTTPServer((args.bind, args.port), handler)
 
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

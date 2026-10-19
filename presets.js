@@ -37,30 +37,25 @@ const builders = {
 
   earShape: (item) => ({
     text: `${item}的耳朵是圆的还是尖的？`,
-    display: item,
     audioText: `请想象${item}的耳朵，是圆的还是尖的？`
   }),
   earShapeImage: () => ({
     text: '图中动物的耳朵是圆的还是尖的？',
-    display: '',
     audioText: '这个动物的耳朵是圆的还是尖的？'
   }),
   shapeDiff: (item) => {
     const [first, second] = splitPair(item);
     return {
       text: `${first} 和 ${second} 有什么区别？`,
-      display: `${first}\n和\n${second}`,
       audioText: `请比较${first}和${second}，说出能区分它们的特征。`
     };
   },
   objectHeight: (item) => ({
     text: `${item}是高的还是矮的？`,
-    display: item,
     audioText: `请想象${item}，它是高的还是矮的？`
   }),
   typicalColor: (item) => ({
     text: `${item}的典型颜色是什么？`,
-    display: item,
     audioText: `请想象${item}，说出它的典型颜色。`
   }),
   digitCurve: (item) => ({
@@ -108,32 +103,27 @@ const builders = {
   },
   spatial: () => ({
     text: '箭头是否指向其中一个点？',
-    display: '',
     audioText: '箭头是否指向其中一个点？'
   }),
   /* 先显示黑点几秒，黑点消失后只留箭头，凭记忆判断 */
   spatialSequence: () => ({
     text: '箭头有没有指向刚才某个黑点的位置？',
-    display: '',
     audioText: '箭头有没有指向刚才某个黑点的位置？'
   }),
   clockImagery: (item, answer) => ({
-    text: `想象 ${item} 的钟面，指针位于哪一侧？`,
-    display: item,
+    text: `想象 ${item} 的钟面，时针和分针位于哪一侧？`,
     audioText: `请想象${item}的钟面，时针和分针位于表盘的哪一侧？`,
     options: clockOptions,
     correct: clockCorrect(answer)
   }),
   clockImage: (item, answer) => ({
-    text: '图中钟面的指针位于哪一侧？',
-    display: '',
+    text: '图中钟面的时针和分针位于哪一侧？',
     audioText: '这个钟面的时针和分针位于表盘的哪一侧？',
     options: clockOptions,
     correct: clockCorrect(answer)
   }),
   colorName: () => ({
     text: '这个色块是什么颜色？',
-    display: '',
     audioText: '请说出这个色块的颜色。'
   }),
   readAloud: (item) => ({
@@ -143,7 +133,6 @@ const builders = {
   }),
   faceName: () => ({
     text: '这是哪位名人？',
-    display: '',
     audioText: '请说出这位名人的名字。'
   })
 };

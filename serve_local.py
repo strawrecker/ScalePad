@@ -13,6 +13,7 @@ import http.server
 import json
 import os
 import sys
+import urllib.request
 import webbrowser
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -31,6 +32,12 @@ else:
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self) -> None:
+        # 程序文件每次都向服务器确认，避免浏览器沿用旧版页面
+        if not self.path.startswith("/api/"):
+            self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -81,6 +88,14 @@ class ReusableHTTPServer(http.server.ThreadingHTTPServer):
     allow_reuse_address = True
 
 
+def is_scalepad(address: str) -> bool:
+    try:
+        with urllib.request.urlopen(f"{address}api/desktop", timeout=2) as response:
+            return '"dest"' in response.read().decode("utf-8", "replace")
+    except OSError:
+        return False
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="ScalePad 本机网页服务")
     parser.add_argument("--port", type=int, default=47815)
@@ -88,8 +103,18 @@ def main() -> None:
     args = parser.parse_args()
 
     handler = functools.partial(Handler, directory=str(ROOT))
-    server = ReusableHTTPServer(("127.0.0.1", args.port), handler)
     address = f"http://127.0.0.1:{args.port}/"
+    try:
+        server = ReusableHTTPServer(("127.0.0.1", args.port), handler)
+    except OSError:
+        # 端口已被占用：多半是 ScalePad 已经开着（例如又双击了一次），直接打开浏览器
+        if is_scalepad(address):
+            print(f"ScalePad 已经在运行：{address}")
+            if not args.no_browser:
+                webbrowser.open(address)
+            return
+        print(f"端口 {args.port} 被别的程序占用了，请先关掉那个程序再启动。（不要改端口，否则之前的记录会看不到）")
+        sys.exit(1)
     print(f"ScalePad 已在本机运行：{address}")
     if MERGE_ERROR:
         print(f"注意：{MERGE_ERROR}（不影响答题，只是不能一键追加进汇总表）")

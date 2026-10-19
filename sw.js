@@ -1,5 +1,5 @@
-const CACHE_NAME = 'bip-evaluation-v20';
-const CORE_FILES = ['./', './index.html', './app.js', './presets.js', './xlsx.js', './tasks.js', './manifest.json'];
+const CACHE_NAME = 'bip-evaluation-v25';
+const CORE_FILES = ['./', './index.html', './app.js', './presets.js', './xlsx.js', './tasks.js', './config.js', './manifest.json'];
 const numbered = (folder, prefix, count, ext = 'png') => Array.from({ length: count }, (_, index) => `./${folder}/${prefix}${String(index + 1).padStart(2, '0')}.${ext}`);
 const sequence = (folder, count) => Array.from({ length: count }, (_, index) => {
   const base = `./${folder}/item${String(index + 1).padStart(2, '0')}`;
@@ -42,7 +42,7 @@ self.addEventListener('fetch', (event) => {
   if (new URL(event.request.url).pathname.startsWith('/api/')) return;
   if (isCore(event.request)) {
     event.respondWith(
-      fetch(event.request).then((response) => {
+      fetch(event.request, { cache: 'no-cache' }).then((response) => {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;

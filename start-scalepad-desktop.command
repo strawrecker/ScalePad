@@ -6,9 +6,12 @@ cd "$(dirname "$0")"
 pause_and_exit() { read -k 1 "?按任意键关闭…"; exit 1; }
 
 python_bin="$(command -v python3 || true)"
-if [[ -z "$python_bin" ]]; then
-  print "找不到 python3。可先执行：brew install python"
-  pause_and_exit
+if [[ -z "$python_bin" ]] || ! "$python_bin" -c "import sys" >/dev/null 2>&1; then
+  # 没有 Python 也能用：直接用浏览器打开网页文件，只是不能一键追加进汇总表
+  print "没有找到可用的 python3，直接用浏览器打开 ScalePad（不能一键追加进汇总表）。"
+  print "需要完整功能可安装 Python：https://www.python.org/downloads/"
+  if [[ -d "/Applications/Google Chrome.app" ]]; then open -a "Google Chrome" "index.html"; else open "index.html"; fi
+  exit 0
 fi
 if ! "$python_bin" -c "import openpyxl" 2>/dev/null; then
   print "提示：缺少 openpyxl，答题不受影响，但不能一键追加进汇总表。安装：pip3 install openpyxl"
