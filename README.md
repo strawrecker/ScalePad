@@ -72,7 +72,12 @@ BIP 各卷的名人题分 18–30 岁、31–60 岁两版（各 10 题），按�
 python3 tools/build_release.py
 ```
 
-在 `dist/` 生成 `ScalePad-标准版.zip`（首页没有自适应选项）和 `ScalePad-自适应版.zip`，Windows、Mac 通用，内附《使用说明.txt》。两版只差 `config.js` 里的 `adaptive` 开关。证书、`Scales/` 原始问卷不会打包进去。
+在 `dist/` 生成两个电脑版（Windows、Mac 通用，内附 `README-FIRST.txt` 使用说明）：
+
+- `ScalePad-电脑版-对外（无自适应）.zip`：发给外部使用，首页没有自适应选项。
+- `ScalePad-电脑版-内部（含自适应）.zip`：内部使用，可开启自适应。
+
+两版只差 `config.js` 里的 `adaptive` 开关。证书、`Scales/` 原始问卷和 iPad 专用文件（iPad 版暂停更新）不会打包进去。
 
 ### 回首页与继续测试
 

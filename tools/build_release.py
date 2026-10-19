@@ -2,11 +2,11 @@
 
     python3 tools/build_release.py
 
-在 dist/ 下生成：
-    ScalePad-标准版.zip    首页没有“自适应”选项
-    ScalePad-自适应版.zip  首页可开启自适应
+在 dist/ 下生成（都是电脑版，Mac / Windows 通用）：
+    ScalePad-电脑版-对外（无自适应）.zip   发给外部使用的版本，没有“自适应”功能
+    ScalePad-电脑版-内部（含自适应）.zip   首页可开启自适应
 
-只打包 git 管理的程序文件；证书、原始问卷（Scales/）、.git 都不会带出去。
+只打包 git 管理的程序文件；证书、原始问卷（Scales/）、.git、iPad 专用文件都不会带出去。
 """
 
 from __future__ import annotations
@@ -19,15 +19,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 EXCLUDE_PREFIXES = ("dist/", "Scales/", "Scale/", "certs/", ".git")
-EXCLUDE_FILES = {".gitignore", "tools/build_release.py"}
+EXCLUDE_FILES = {
+    ".gitignore", "tools/build_release.py", "check-assets.js",
+    # iPad 版暂停更新，电脑版不需要这些
+    "在iPad上安装.md", "serve_https.py", "start-scalepad-mac.sh", "start-scalepad.ps1", "allow-scalepad-firewall.ps1",
+}
 EXECUTABLE = (".command", ".sh")
 
 VERSIONS = [
-    ("ScalePad-标准版", "ScalePad-standard", False),
-    ("ScalePad-自适应版", "ScalePad-adaptive", True),
+    ("ScalePad-电脑版-对外（无自适应）", "ScalePad", False),
+    ("ScalePad-电脑版-内部（含自适应）", "ScalePad-adaptive", True),
 ]
+GUIDE_NAME = "README-FIRST.txt"  # 包内文件名用英文：旧版 Windows 解压中文文件名可能乱码
 
-GUIDE = """ScalePad（{label}）使用说明
+GUIDE = """ScalePad {label} 使用说明
 打包日期：{date}
 
 【Mac】
@@ -87,7 +92,7 @@ def build(label: str, folder: str, adaptive: bool, files: list[str]) -> Path:
         f"window.scalePadConfig = {{ adaptive: {'true' if adaptive else 'false'} }};\n"
     )
     guide = GUIDE.format(
-        label=label.split("-")[-1], date=datetime.date.today().isoformat(),
+        label=label.split("-", 1)[-1], date=datetime.date.today().isoformat(),
         adaptive_note=ADAPTIVE_NOTE if adaptive else "",
     )
     with zipfile.ZipFile(target, "w") as archive:
@@ -95,7 +100,7 @@ def build(label: str, folder: str, adaptive: bool, files: list[str]) -> Path:
             data = config.encode("utf-8") if name == "config.js" else (ROOT / name).read_bytes()
             write_entry(archive, f"{folder}/{name}", data)
         # Windows 记事本对带 BOM 的 UTF-8 最稳
-        write_entry(archive, f"{folder}/使用说明.txt", ("﻿" + guide.replace("\n", "\r\n")).encode("utf-8"))
+        write_entry(archive, f"{folder}/{GUIDE_NAME}", ("﻿" + guide.replace("\n", "\r\n")).encode("utf-8"))
     return target
 
 

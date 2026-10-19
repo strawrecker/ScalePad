@@ -4,7 +4,7 @@ const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
 const adaptiveStorageKey = 'scalepad_adaptive_v1';
-const buildTag = '2026-10-19c';
+const buildTag = '2026-10-19d';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -415,11 +415,22 @@ function loadPresets() {
  * 屏幕显示文字也跟默认题库同步（编辑器不能单独改它） */
 function withDefaultHard(custom, preset) {
   const defaults = new Map(preset.questions.map((question) => [`${question.section}\n${question.text}`, question]));
+  const bySection = (questions) => questions.reduce((map, question) => map.set(question.section, [...(map.get(question.section) || []), question]), new Map());
+  const defaultSections = bySection(preset.questions);
+  const seen = new Map();
   return {
     ...custom,
     questions: custom.questions.map((question) => {
-      const base = defaults.get(`${question.section}\n${question.text}`);
-      if (!base) return question;
+      const position = seen.get(question.section) || 0;
+      seen.set(question.section, position + 1);
+      let base = defaults.get(`${question.section}\n${question.text}`);
+      /* 题库改过题干（如字母构建改回原版表述）：同分区、同位置、答案相同就跟着更新题干 */
+      if (!base) {
+        const candidate = defaultSections.get(question.section)?.[position];
+        if (!candidate || candidate.correct !== question.correct) return question;
+        base = candidate;
+        question = { ...question, text: base.text, audioText: base.audioText };
+      }
       return { ...question, display: base.display, ...('hard' in question || !base.hard ? {} : { hard: true }) };
     })
   };
