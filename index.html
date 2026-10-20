@@ -354,6 +354,49 @@
     .key-hint { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 30; overflow: hidden; padding: 10px 20px; border-radius: 12px; background: #102a43e6; color: #fff; font-size: 22px; font-weight: 700; transform: translateX(-50%); pointer-events: none; }
     .key-hint.holding::after { content: ''; position: absolute; left: 0; bottom: 0; height: 4px; width: 100%; background: #7cc4fa; transform-origin: left; animation: key-hold var(--hold-ms, 500ms) linear both; }
     @keyframes key-hold { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+    /* ===== 再放大（Windows 高分屏上原来的上限太小）：上限按屏幕宽高一起算 ===== */
+    .quiz-nav { height: clamp(72px, 9vh, 96px); }
+    .quiz-nav .parts-button { font-size: clamp(20px, 2.2vw, 30px); padding: 10px 18px; }
+    .quiz-nav .skip-button { font-size: clamp(20px, 2.2vw, 28px); }
+    .section-band span { font-size: clamp(22px, min(2.6vw, 4vh), 36px); }
+    .q { font-size: clamp(56px, min(8.5vw, 13vh), 170px); }
+    .q.medium { font-size: clamp(40px, min(5.6vw, 8.5vh), 120px); }
+    .q.small { font-size: clamp(32px, min(4.2vw, 6.5vh), 84px); }
+    .question-wrap.with-media .q, .question-wrap.with-media .q.medium, .question-wrap.with-media .q.small { font-size: clamp(34px, min(4.6vw, 6.5vh), 84px); }
+    #choices button { font-size: clamp(46px, min(7vw, 11vh), 136px); }
+    #choices.many button { font-size: clamp(34px, min(4.8vw, 8vh), 92px); }
+    #choices.long-options button { font-size: clamp(28px, min(3.6vw, 6vh), 68px); }
+    #choices .speak-hint { font-size: clamp(28px, min(3.4vw, 5.5vh), 56px); }
+    #choices .doctor-title { font-size: clamp(20px, 1.8vw, 30px); }
+    #choices.free-response .doctor-panel .mark-row button { min-height: clamp(52px, 8vh, 96px); font-size: clamp(32px, min(3.2vw, 5.5vh), 56px); }
+    #choices .doctor-panel .free-response-input { font-size: clamp(22px, 2.4vw, 36px); }
+    #choices button.unseen-option, #choices.many button.unseen-option { flex: 0 0 24%; font-size: clamp(26px, min(3vw, 5vh), 52px); }
+    #choices button.unseen-option::after { font-size: clamp(14px, 1.2vw, 20px); }
+    .skip-tag, .quiz-status { font-size: clamp(22px, 2vw, 32px); }
+    .researcher-script.doctor-read { font-size: clamp(28px, min(3.8vw, 6vh), 60px); }
+    .gate-note { font-size: clamp(22px, min(2.6vw, 4.5vh), 44px); }
+    .gate-panels figcaption { font-size: clamp(19px, min(2.2vw, 3.6vh), 38px); }
+    .gate-card h3 { font-size: clamp(26px, min(3.2vw, 5vh), 54px); }
+    /* 颜色块、看图题、箭头题：图片尽量大，按钮压矮 */
+    #questionMedia .color-reveal { width: min(80%, 900px); height: 100%; font-size: clamp(30px, 4vw, 60px); }
+    #questionMedia.has-image { flex: 1 1 76%; max-height: 78%; }
+    #questionMedia.stimulus { flex: 1 1 78%; max-height: 80%; }
+    #questionMedia.has-image + #choices:not(.free-response), #questionMedia.stimulus + #choices { flex: 0 0 clamp(96px, 13vh, 150px); }
+    /* 结果页：列宽固定，长内容换行 */
+    .section-table { table-layout: fixed; }
+    .section-table th:nth-child(1) { width: 30%; }
+    .section-table th:nth-child(2) { width: 22%; }
+    .section-table th:nth-child(3) { width: 18%; }
+    .section-table th:nth-child(4) { width: 30%; }
+    .section-table td { vertical-align: top; overflow-wrap: anywhere; }
+    .section-table td.result, .section-table td.rate, .section-table td.skip { white-space: normal; }
+    /* 做完后给患者看的结束页：医生长按才显示结果 */
+    .end-cover { position: fixed; inset: calc(92px + env(safe-area-inset-top)) 0 0 0; z-index: 15; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 24px; background: #fff; text-align: center; }
+    .end-cover strong { color: #087443; font-size: clamp(48px, min(8vw, 12vh), 140px); }
+    .end-cover span { color: #102a43; font-size: clamp(32px, min(5vw, 8vh), 90px); font-weight: 700; }
+    .end-cover button { width: auto; margin-top: 6vh; padding: 12px 22px; border-radius: 12px; background: #f0f2f5 linear-gradient(90deg, #9fb3c8 0 0) no-repeat left / 0% 100%; color: #829ab1; font-size: 18px; font-weight: 600; -webkit-user-select: none; user-select: none; touch-action: none; }
+    .end-cover button.holding { background-size: 100% 100%; color: #102a43; transition: background-size var(--hold-ms, 1.5s) linear; }
+    #skipOverlay .skip-note { margin: 12px 0 0; padding: 10px 12px; font-size: 22px; }
   </style>
 </head>
 <body>
@@ -410,7 +453,7 @@
         <button class="small" id="voiceOn" type="button">开启</button>
         <em>默认关闭，由医生口头读题；答题中也可随时切换</em>
       </div>
-      <p class="setup-note">医生记录的题目用数字标记对错：<strong>1 正确　2 错误　3 不确定</strong>；名人面孔识别是 <strong>1 正确　2 错误　3 没见过</strong>（见过但说不出来记 2，没见过记 3，不计入正确率）。名人比较题（谁的脸更圆等）按 <strong>3 = 有人没见过</strong>。<br>电脑键盘：<strong>A 上一题、D 下一题</strong>（← → 也行）、W 上一部分、S 下一部分，1 / 2 / 3 标记，按一下即可；<strong>跳过要长按 Q 或空格</strong>，再按 1–6 选代码。<br>跳过菜单和答题屏幕上只显示代码，不写原因（患者看不出为什么跳过）：<strong>1 → 001 过于简单　2 → 002 太难　3 → 003 不熟悉内容（不认识名人、字母等）　4 → 004 拒绝或疲劳　5 → 005 设备问题　6 → 009 其他</strong><!--@A-->；自适应自动记为正确的题显示“已记录 A”<!--@A-->。</p>
+      <p class="setup-note">医生记录的题目用数字标记对错：<strong>1 正确　2 错误　3 不确定</strong>；名人面孔识别是 <strong>1 正确　2 错误　3 没见过</strong>（见过但说不出来记 2，没见过记 3，不计入正确率）。名人比较题（谁的脸更圆等）按 <strong>3 = 有人不认识</strong>。<br>电脑键盘：<strong>A 上一题、D 下一题</strong>（← → 也行）、W 上一部分、S 下一部分，1 / 2 / 3 标记，按一下即可。<strong>跳过要长按：Q = 001 太简单，E = 002 太难</strong>（直接跳过本题）；长按空格打开跳过菜单，按 1–6 选其他代码，可写备注。<br>跳过菜单和答题屏幕上只显示代码，不写原因（患者看不出为什么跳过）：<strong>1 → 001 过于简单　2 → 002 太难　3 → 003 不熟悉内容（不认识名人、字母等）　4 → 004 拒绝或疲劳　5 → 005 设备问题　6 → 009 其他</strong><!--@A-->；自适应自动记为正确的题显示“已记录 A”<!--@A-->。</p>
       <label>选择量表（一般选 A 套或 B 套；按点击顺序作答，答题中可随时切换部分）</label>
       <div id="scaleList" class="scale-list"></div>
       <button id="start">开始</button>
@@ -454,10 +497,12 @@
         <h3>跳过 <small class="muted">（按 1–6 选代码，Esc 取消）</small></h3>
         <div class="skip-scope"><button class="small" id="skipScopeOne" type="button">仅本题</button><button class="small" id="skipScopePart" type="button">本部分剩余题</button></div>
         <div id="skipList" class="parts-list"></div>
+        <input id="skipNote" class="skip-note" placeholder="备注跳过原因（可不填，先写备注再点代码）" autocomplete="off">
         <div class="overlay-actions"><button class="small" id="skipClose" type="button">取消</button></div>
       </div>
     </div>
     <section id="done" class="card hidden">
+      <div id="endCover" class="end-cover hidden"><strong>评估结束</strong><span>请把设备还给医生</span><button id="endCoverOpen" type="button">医生：长按查看结果</button></div>
       <h2 id="doneTitle">答题完成</h2>
       <p id="summary"></p>
       <div id="sectionResults"></div>

@@ -95,23 +95,24 @@
         holdTimer = window.setTimeout(() => { release(); this.abort(); }, 1500);
       });
       ['pointerup', 'pointerleave', 'pointercancel'].forEach((type) => this.abortButton.addEventListener(type, release));
-      /* 跳过本评估：长按按钮 1 秒，或长按 Q / 空格 1 秒 */
+      /* 跳过本评估：长按按钮或空格 1 秒（之后选代码）；长按 Q = 001 过于简单，长按 E = 002 太难 */
       let skipTimer = null;
       let skipKey = null;
       const skipRelease = () => { if (skipTimer) window.clearTimeout(skipTimer); skipTimer = null; skipKey = null; this.skipButton.classList.remove('holding'); };
-      const skipHold = () => {
+      const skipHold = (reason = 'skipped') => {
         if (skipTimer) return;
         this.skipButton.classList.add('holding');
-        skipTimer = window.setTimeout(() => { skipRelease(); this.abort('skipped'); }, 1000);
+        skipTimer = window.setTimeout(() => { skipRelease(); this.abort(reason); }, 1000);
       };
-      this.skipButton.addEventListener('pointerdown', (event) => { event.preventDefault(); event.stopPropagation(); skipHold(); });
+      this.skipButton.addEventListener('pointerdown', (event) => { event.preventDefault(); event.stopPropagation(); skipHold('skipped'); });
       ['pointerup', 'pointerleave', 'pointercancel'].forEach((type) => this.skipButton.addEventListener(type, skipRelease));
       const onKeyDown = (event) => {
-        if (event.code !== 'KeyQ' && event.code !== 'Space') return;
+        const reason = { KeyQ: 'skip-001', KeyE: 'skip-002', Space: 'skipped' }[event.code];
+        if (!reason) return;
         event.preventDefault();
         if (event.repeat) return;
         skipKey = event.code;
-        skipHold();
+        skipHold(reason);
       };
       const onKeyUp = (event) => { if (event.code === skipKey) skipRelease(); };
       window.addEventListener('keydown', onKeyDown);
@@ -295,7 +296,7 @@
       stage.text('100', 300, -36, 32);
     };
     stage.clear();
-    stage.text('欢迎参加数字线标记评估！\n\n请将鼠标移动到数字线上，标记出数字对应的位置。\n点击鼠标确认位置。\n\n即将开始，请做好准备。', 0, 0, 30, 600);
+    stage.text('欢迎参加数字线标记评估！\n\n请将鼠标移动到数字线上，标记出数字对应的位置。\n点击鼠标确认位置。\n\n即将开始，请做好准备。', 0, 0, 36, 760);
     await stage.intro(5000);
     const results = [];
     for (const number of numbers) {
@@ -326,8 +327,9 @@
     const accuracy = 100 * (1 - totalError / (600 * results.length));
     stage.clear();
     await stage.wait(500);
-    stage.text(`准确性评分: ${accuracy.toFixed(2)}/100\n总反应时间: ${totalRT.toFixed(0)} 毫秒`, 0, 0, 40, 600);
-    await stage.wait(5000);
+    /* 不给患者看分数（分数在结果页） */
+    stage.text('本部分完成', 0, 0, 48, 600);
+    await stage.wait(2000);
     const sheetName = sheetStamp();
     return {
       task: 'numberline',
@@ -393,7 +395,7 @@
   async function runDotComparison(stage, onTrial) {
     stage.clear();
     ['欢迎参加非符号数量比较评估！', '屏幕上会显示两组点图，请判断哪一组的点数更多。', '使用键盘上的左箭头（←）选择左侧，', '右箭头（→）选择右侧。', '每道题的选择时间为5秒，', '若超时则自动跳转下一题。', '即将开始，请做好准备。']
-      .forEach((line, index) => stage.text(line, 0, 200 - index * 50, 30, 800));
+      .forEach((line, index) => stage.text(line, 0, 200 - index * 58, 33, 800));
     await stage.intro(5000);
     const results = [];
     let totalRT = 0;
@@ -405,7 +407,8 @@
       const leftDots = Array.from({ length: leftNumber }, () => [uniform(-300, -100), uniform(-200, 200)]);
       const rightDots = Array.from({ length: rightNumber }, () => [uniform(100, 300), uniform(-200, 200)]);
       stage.clear();
-      [...leftDots, ...rightDots].forEach(([x, y]) => stage.circle(x, y, 5, '#000'));
+      /* 原程序半径 5，很多人看不清，放大到 8（只改画法，点数和位置规则不变） */
+      [...leftDots, ...rightDots].forEach(([x, y]) => stage.circle(x, y, 8, '#000'));
       const startTime = await nextFrame();
       const { response, inputType } = await waitDotChoice(stage);
       const responseTime = performance.now() - startTime;
@@ -418,8 +421,8 @@
     }
     const accuracy = dotAccuracy(results);
     stage.clear();
-    stage.text(`准确性评分: ${accuracy.toFixed(2)}/100\n总反应时间: ${totalRT.toFixed(0)} 毫秒`, 0, 0, 40, 800);
-    await stage.wait(5000);
+    stage.text('本部分完成', 0, 0, 48, 800);
+    await stage.wait(2000);
     const sheetName = sheetStamp();
     return {
       task: 'dots',
