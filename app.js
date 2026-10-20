@@ -8,7 +8,7 @@ const presetStorageKey = 'scalepad_presets_v3';
 const voiceStorageKey = 'scalepad_voice_v2';
 const planStorageKey = 'scalepad_plan_v1';
 const adaptiveStorageKey = 'scalepad_adaptive_v1'; /*@A*/
-const buildTag = '2026-10-20a';
+const buildTag = '2026-10-20b';
 let presets = loadPresets();
 
 let questionIndex = 0;
@@ -970,6 +970,7 @@ async function startSession() {
   answers = [];
   answerByQuestion = {};
   seenGates = new Set();
+  examplesRead = new Set();
   reopenGate = null;
   /* 不熟悉英文字母：字母相关题直接记为 003 跳过，顺序作答时越过 */
   if (lettersFamiliar === 'no') {
@@ -1211,6 +1212,8 @@ function renderBand(question) {
 
 /* 已看过示例 / 交接提示的部分。看过就不再自动出现，从本部分第一题往前翻（上一题 / W）可以翻回来再看 */
 let seenGates = new Set();
+/* 本次测试里已经看满 5 秒（或点过开始）的示例：再看到同一个示例不用再等 */
+let examplesRead = new Set();
 let reopenGate = null;
 let gateTimer = null;
 const exampleReadMs = 5000;
@@ -1236,6 +1239,7 @@ function gateFor(index) {
 
 function dismissGate(question, gate) {
   seenGates.add(question.planIndex);
+  if (question.example) examplesRead.add(question.example);
   reopenGate = null;
   if (sessionId && storageReady) void writeEvent({ type: 'gate_dismissed', ...questionFields(question), example: question.example || null });
   renderQuestion();
@@ -1289,8 +1293,8 @@ function renderGate(question, gate) {
   start.textContent = gate.example ? '看懂了，开始答题' : '开始';
   start.onclick = () => dismissGate(question, gate);
   card.append(start);
-  /* 示例至少看 5 秒，按钮才能点 */
-  if (gate.example) {
+  /* 示例第一次至少看 5 秒，按钮才能点；看过一次再出现就不用等 */
+  if (gate.example && !examplesRead.has(question.example)) {
     const readyAt = Date.now() + exampleReadMs;
     start.disabled = true;
     const tick = () => {
@@ -1301,6 +1305,7 @@ function renderGate(question, gate) {
         return;
       }
       gateTimer = null;
+      examplesRead.add(question.example);
       start.disabled = false;
       start.textContent = '看懂了，开始答题';
     };
@@ -1316,7 +1321,83 @@ function introAction(question) {
   return '请点下面的按钮作答';
 }
 
+/* 字号：同一部分里所有题目用同一个字号，取这一部分最长的题也放得下的最大字号；选项按钮同理。
+ * 换部分、换窗口大小时重新算 */
+const fitCache = new Map();
+let fitFrame = null;
+
+function fitSize(cacheKey, apply, texts, fits, minPx, maxPx) {
+  const key = `${cacheKey}|${window.innerWidth}x${window.innerHeight}`;
+  let size = fitCache.get(key);
+  if (!size) {
+    let low = minPx;
+    let high = Math.max(minPx, Math.floor(maxPx));
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      apply(mid);
+      if (texts.every(fits)) low = mid;
+      else high = mid - 1;
+    }
+    size = low;
+    fitCache.set(key, size);
+  }
+  apply(size);
+  return size;
+}
+
+function fitQuestionText() {
+  fitFrame = null;
+  if ($('quiz').classList.contains('hidden') || $('quiz').classList.contains('gated')) return;
+  const question = activeQuestions[questionIndex];
+  if (!question) return;
+  const part = activeQuestions.filter((item) => item.planIndex === question.planIndex);
+  const media = Boolean(question.image || question.sequence);
+  const q = $('question');
+  const wrap = $('questionWrap');
+  const shown = q.textContent;
+  q.style.fontSize = '';
+  q.style.whiteSpace = '';
+  if (question.delivery !== 'audio' && shown) {
+    const texts = part.filter((item) => item.delivery !== 'audio' && Boolean(item.image || item.sequence) === media).map((item) => item.display ?? item.text).filter(Boolean);
+    const vh = window.innerHeight / 100;
+    const vw = window.innerWidth / 100;
+    /* 带图的题：题干只占一行，图片尽量大 */
+    if (media) q.style.whiteSpace = 'nowrap';
+    fitSize(`q|${question.planIndex}|${media}`, (px) => { q.style.fontSize = `${px}px`; }, texts, (text) => {
+      q.textContent = text;
+      if (q.scrollWidth > q.clientWidth + 1) return false;
+      return media || q.getBoundingClientRect().height <= wrap.clientHeight - 20;
+    }, 24, media ? Math.min(7 * vh, 6 * vw, 80) : Math.min(18 * vh, 12 * vw, 220));
+    q.textContent = shown;
+  }
+  /* 选项按钮：除“有人不认识”外同一个字号 */
+  const buttons = [...document.querySelectorAll('#choices > button.choice:not(.unseen-option)')];
+  buttons.forEach((button) => { button.style.fontSize = ''; button.style.whiteSpace = ''; });
+  if (buttons.length && !$('choices').classList.contains('free-response')) {
+    const probe = buttons[0];
+    const original = probe.textContent;
+    const options = [...new Set(part.flatMap((item) => (item.options || []).filter((option) => option !== item.unseenOption)))];
+    /* 短选项（如“都在左侧”）不拆成两行 */
+    const noWrap = options.every((option) => option.length <= 6) ? 'nowrap' : '';
+    buttons.forEach((button) => { button.style.whiteSpace = noWrap; });
+    const size = fitSize(`c|${question.planIndex}|${buttons.length}`, (px) => { probe.style.fontSize = `${px}px`; }, options, (text) => {
+      probe.textContent = text;
+      return probe.scrollHeight <= probe.clientHeight + 1 && probe.scrollWidth <= probe.clientWidth + 1;
+    }, 20, Math.min(window.innerHeight * 0.14, 170));
+    probe.textContent = original;
+    buttons.forEach((button) => { button.style.fontSize = `${size}px`; });
+  }
+}
+
+window.addEventListener('resize', () => {
+  fitCache.clear();
+  if (fitFrame) window.cancelAnimationFrame(fitFrame);
+  fitFrame = window.requestAnimationFrame(fitQuestionText);
+});
+
 function renderQuestion() {
+  if (fitFrame) window.cancelAnimationFrame(fitFrame);
+  fitFrame = window.requestAnimationFrame(fitQuestionText);
   if (advanceTimer) window.clearTimeout(advanceTimer);
   advanceTimer = null;
   if (gateTimer) window.clearTimeout(gateTimer);
@@ -2041,6 +2122,7 @@ function speakQuestion(auto = false) {
 function updateHomeButton() {
   const onSetup = !$('setup').classList.contains('hidden');
   $('homeButton').classList.toggle('hidden', onSetup);
+  document.body.classList.toggle('in-quiz', !$('quiz').classList.contains('hidden'));
   $('homeButton').classList.toggle('guarded', !$('quiz').classList.contains('hidden') || !$('endCover').classList.contains('hidden'));
   $('homeHint').classList.add('hidden');
 }
@@ -2185,11 +2267,15 @@ async function loadSession(id) {
   activeQuestions = built.questions;
   answerByQuestion = {};
   seenGates = new Set();
+  examplesRead = new Set();
   events.forEach(({ id: eventId, sessionId: owner, sequence, recordedAt, type, ...fields }) => {
     if (type === 'answer_committed' || type === 'question_skipped' || type === 'adaptive_credited') answerByQuestion[fields.index] = fields; /*@A*/
     //@E if (type === 'answer_committed' || type === 'question_skipped') answerByQuestion[fields.index] = fields;
     else if (type === 'adaptive_revoked') delete answerByQuestion[fields.index]; /*@A*/
-    else if (type === 'gate_dismissed' && activeQuestions[fields.questionIndex]) seenGates.add(activeQuestions[fields.questionIndex].planIndex);
+    else if (type === 'gate_dismissed' && activeQuestions[fields.questionIndex]) {
+      seenGates.add(activeQuestions[fields.questionIndex].planIndex);
+      if (fields.example) examplesRead.add(fields.example);
+    }
   });
   reopenGate = null;
   rebuildAnswers();

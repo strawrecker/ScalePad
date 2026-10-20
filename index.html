@@ -397,6 +397,19 @@
     .end-cover button { width: auto; margin-top: 6vh; padding: 12px 22px; border-radius: 12px; background: #f0f2f5 linear-gradient(90deg, #9fb3c8 0 0) no-repeat left / 0% 100%; color: #829ab1; font-size: 18px; font-weight: 600; -webkit-user-select: none; user-select: none; touch-action: none; }
     .end-cover button.holding { background-size: 100% 100%; color: #102a43; transition: background-size var(--hold-ms, 1.5s) linear; }
     #skipOverlay .skip-note { margin: 12px 0 0; padding: 10px 12px; font-size: 22px; }
+    /* ===== 答题时顶栏变矮、带图的题省掉提示条，图片尽量大 ===== */
+    body.in-quiz header { height: calc(56px + env(safe-area-inset-top)); padding-top: calc(6px + env(safe-area-inset-top)); padding-bottom: 6px; }
+    body.in-quiz header h1 { font-size: 30px; line-height: 44px; }
+    body.in-quiz header .home-button { width: 46px; height: 46px; }
+    body.in-quiz main { height: calc(100% - 56px - env(safe-area-inset-top)); }
+    body.in-quiz #quiz { padding-top: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+    #quiz.media-question .section-band { display: none; }
+    #choices { min-height: 0; }
+    #choices > button.choice:not(.unseen-option) { padding: 8px clamp(16px, 2vw, 36px); }
+    .question-wrap.with-media { padding: 0; }
+    .question-wrap.with-media .q { margin: 2px 0 6px; }
+    #questionMedia.has-image, #questionMedia.stimulus { flex: 1 1 auto; max-height: none; margin: 0 0 8px; }
+    #questionMedia.has-image + #choices:not(.free-response), #questionMedia.stimulus + #choices { flex: 0 0 clamp(84px, 11vh, 130px); }
   </style>
 </head>
 <body>
