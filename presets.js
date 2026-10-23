@@ -220,7 +220,7 @@ const combinedSet = (perception, imagery) => {
   ];
 };
 
-/* 空间、时钟题开始前先给患者看的示例（不计分），由 app.js 在本部分第一题前显示 */
+/* 空间、时钟题开始前先给患者看的示例，由 app.js 在本部分第一题前显示。note 是图下方的棕色提示 */
 const examples = {
   spatial: {
     title: '示例：箭头有没有指向某个黑点？',
@@ -230,30 +230,28 @@ const examples = {
     ]
   },
   spatialSequence: {
-    title: '示例：先记住黑点，再判断箭头',
-    note: '③④ 里的灰圈 = 刚才出现过的点，只是帮你看懂，答题时屏幕上没有',
+    title: '示例：箭头有没有指向刚才某个黑点？',
+    note: '答题时黑点先出现约 4 秒，然后消失，只留下箭头，要凭记忆判断',
     panels: [
-      { image: 'assets/examples/sequence-1.svg', caption: '① 先出现几个黑点，记住位置' },
-      { image: 'assets/examples/sequence-2.svg', caption: '② 黑点消失，只剩一个箭头' },
-      { image: 'assets/examples/sequence-3.svg', answer: '是', tone: 'yes', caption: '③ 箭头延长后，碰到了刚才出现过的点' },
-      { image: 'assets/examples/sequence-no.svg', answer: '否', tone: 'no', caption: '④ 箭头延长后，刚才出现过的点一个也没碰到' }
+      { image: 'assets/examples/spatial-yes.svg', answer: '是', tone: 'yes', caption: '箭头往前延长（红色虚线），碰到了刚才的一个黑点' },
+      { image: 'assets/examples/spatial-no.svg', answer: '否', tone: 'no', caption: '箭头往前延长，刚才的黑点一个也没碰到' }
     ]
   },
   clockImage: {
     title: '示例：以 12 点和 6 点的连线（虚线）分左右',
     panels: [
-      { image: 'assets/examples/clock-right.svg', answer: '都在右侧', caption: '1:10：两根针都在右半边' },
       { image: 'assets/examples/clock-left.svg', answer: '都在左侧', caption: '10:45：两根针都在左半边' },
+      { image: 'assets/examples/clock-right.svg', answer: '都在右侧', caption: '1:10：两根针都在右半边' },
       { image: 'assets/examples/clock-split.svg', answer: '一左一右', caption: '2:35：时针在右、分针在左' }
     ]
   },
   clockImagery: {
-    title: '示例：看到时间 → 想出钟面 → 判断左右',
-    note: '另外两种答案：10:45 两根针都在左侧；2:35 时针在右、分针在左，是一左一右',
+    title: '示例：看到时间，想出钟面，再判断左右',
+    note: '答题时屏幕上只有时间，钟面要在脑海里想。实在想不出来就选“不确定”',
     panels: [
-      { image: 'assets/examples/clock-time.svg', caption: '① 屏幕上出现一个时间，例如 15:05（下午 3 点 05 分）' },
-      { image: 'assets/examples/clock-imagine.svg', caption: '② 在脑海里想出这个时间的钟面：时针指 3，分针指 1' },
-      { image: 'assets/examples/clock-305.svg', answer: '都在右侧', caption: '③ 以 12 点和 6 点的连线分左右：两根针都在右边' }
+      { image: 'assets/examples/clock-imagery-left.svg', answer: '都在左侧', caption: '21:50：时针在 9 和 10 之间，分针指 10' },
+      { image: 'assets/examples/clock-imagery-right.svg', answer: '都在右侧', caption: '15:05：时针指 3，分针指 1' },
+      { image: 'assets/examples/clock-imagery-split.svg', answer: '一左一右', caption: '19:25：时针在左，分针在右' }
     ]
   }
 };
@@ -619,6 +617,9 @@ const pit = [
   ].map(pitItem('想象以后：')))
 ];
 
+/* 情绪问卷：进入时先放一页“接下来是情绪问卷”的提示 */
+const moodScale = (items) => items.map((item) => ({ ...item, mood: true }));
+
 const baiOptions = ['无', '轻度：无多大困扰', '中度：不适但尚能忍受', '重度：只能勉强忍受'];
 const bai = buildScale('BAI 贝克焦虑量表',
   '过去一周（包括今天），有没有下面这些情况？有的话，选出困扰你的程度。',
@@ -777,12 +778,12 @@ window.scalePadPresets = [
   //@E { name: 'BIP B｜视觉心理意象', group: 'bipPart', questions: doctorFirst(imageryB).flatMap(buildSection) },
   { name: 'VVIQ｜视觉想象生动性', questions: vviq },
   { name: 'PIT｜前瞻意象任务', questions: pit },
-  { name: 'BAI｜贝克焦虑量表', questions: bai },
-  { name: 'SDS｜抑郁自评量表', questions: sds },
+  { name: 'BAI｜贝克焦虑量表', questions: moodScale(bai) },
+  { name: 'SDS｜抑郁自评量表', questions: moodScale(sds) },
   { name: '数轴评估', group: 'task', questions: [taskQuestion('numberline', '数轴评估', '22 题：在 1–100 的数轴上标出数字的位置。触屏时手指可按在数轴下方，左右拖动红点，抬起手指确认。')] },
   { name: '点数比较评估', group: 'task', questions: [taskQuestion('dots', '点数比较评估', '20 题：判断左右哪边点多，每题限时 10 秒。点屏幕左半边选左，右半边选右（接键盘时也可用 ← →）。')] },
-  { name: 'DSRS｜儿童抑郁自评', group: 'child', questions: dsrs },
-  { name: 'SCARED｜儿童焦虑筛查', group: 'child', questions: scared }
+  { name: 'DSRS｜儿童抑郁自评', group: 'child', questions: moodScale(dsrs) },
+  { name: 'SCARED｜儿童焦虑筛查', group: 'child', questions: moodScale(scared) }
 ];
 
 window.scalePadExamples = examples;

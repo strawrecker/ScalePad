@@ -25,6 +25,7 @@
     #setup > label { display: block; margin-top: 20px; font-size: 18px; font-weight: 600; }
     .start-row { display: grid; grid-template-columns: 1fr 1fr 120px; gap: 16px; }
     .start-row.second { grid-template-columns: 1fr auto; align-items: end; }
+    .start-row.edu { grid-template-columns: 220px 1fr; margin-top: 6px; }
     .start-row .confirm-row { margin: 8px 0 18px; }
     .scale-group { margin: 10px 0 0; color: #627d98; font-size: 15px; font-weight: 600; }
     .start-row label { display: block; font-size: 18px; font-weight: 600; }
@@ -196,6 +197,17 @@
     .section-table td.rate, .section-table td.skip { color: #627d98; white-space: nowrap; }
     .section-table td small { display: block; color: #829ab1; font-size: 13px; }
     .section-table tr.total td { border-top: 2px solid #bcccdc; border-bottom: 0; background: #f4f7fb; font-weight: 700; }
+    .recovered-note { margin: 8px 0; padding: 12px 14px; border-radius: 12px; background: #fff4e5; color: #9a5b00; font-weight: 600; }
+    .section-table td small.unfinished { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 8px; background: #fff4e5; color: #9a5b00; }
+    button.raw-toggle { display: block; width: auto; margin: 4px 0 16px; }
+    .raw-record h3 { margin: 18px 0 4px; color: #334e68; }
+    .raw-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .raw-table { width: 100%; border-collapse: collapse; font-size: 16px; }
+    .raw-table th, .raw-table td { padding: 6px 8px; border-bottom: 1px solid #e3eaf2; text-align: left; vertical-align: top; }
+    .raw-table th { color: #627d98; font-weight: 600; white-space: nowrap; }
+    .raw-table td:first-child, .raw-table td:last-child { white-space: nowrap; }
+    .raw-table td.ok { color: #1f6b22; font-weight: 700; }
+    .raw-table td.bad { color: #b42318; font-weight: 700; }
     .dashboard { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
     .metric { padding: 16px; border: 1px solid #d9e2ec; border-radius: 12px; background: #f8fafc; }
     .metric strong { display: block; color: #627d98; font-size: 16px; font-weight: 600; }
@@ -340,6 +352,11 @@
     #choices.many.has-unseen { grid-template-columns: 1fr 1fr 0.55fr; }
     /* 选中后要变色，否则点了看不出反应 */
     #choices button.unseen-option.selected { background: #52606d; color: #fff; }
+    /* 小的“不确定”按钮：灰色、窄一些，放在选项最后 */
+    #choices button.uncertain-option { flex: 0 0 16%; background: #f0f2f5; color: #52606d; font-size: clamp(20px, 2.4vw, 30px); }
+    #choices button.uncertain-option.selected { background: #52606d; color: #fff; }
+    #choices.many.has-uncertain { grid-template-columns: repeat(var(--n), minmax(0, 1fr)) minmax(0, 0.55fr); }
+    #choices.many.has-uncertain button.uncertain-option { font-size: clamp(20px, 2.4vw, 30px); }
     #choices button.unseen-option::after { content: '键盘 3'; display: block; margin-top: 4px; font-size: 14px; font-weight: 400; opacity: 0.6; }
     /* 示例图上方的答案标签 */
     .gate-panels.n4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -384,10 +401,9 @@
     #questionMedia.has-image + #choices:not(.free-response), #questionMedia.stimulus + #choices { flex: 0 0 clamp(96px, 13vh, 150px); }
     /* 结果页：列宽固定，长内容换行 */
     .section-table { table-layout: fixed; }
-    .section-table th:nth-child(1) { width: 30%; }
+    .section-table th:nth-child(1) { width: 46%; }
     .section-table th:nth-child(2) { width: 22%; }
-    .section-table th:nth-child(3) { width: 18%; }
-    .section-table th:nth-child(4) { width: 30%; }
+    .section-table th:nth-child(3) { width: 32%; }
     .section-table td { vertical-align: top; overflow-wrap: anywhere; }
     .section-table td.result, .section-table td.rate, .section-table td.skip { white-space: normal; }
     /* 做完后给患者看的结束页：医生长按才显示结果 */
@@ -405,7 +421,7 @@
     body.in-quiz #quiz { padding-top: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
     #quiz.media-question .section-band { display: none; }
     #choices { min-height: 0; }
-    #choices > button.choice:not(.unseen-option) { padding: 8px clamp(16px, 2vw, 36px); }
+    #choices > button.choice:not(.unseen-option):not(.uncertain-option) { padding: 8px clamp(16px, 2vw, 36px); }
     .question-wrap.with-media { padding: 0; }
     .question-wrap.with-media .q { margin: 2px 0 6px; }
     #questionMedia.has-image, #questionMedia.stimulus { flex: 1 1 auto; max-height: none; margin: 0 0 8px; }
@@ -439,12 +455,21 @@
       </div>
       <div class="confirm-row" id="educationRow">
         <span>学历</span>
-        <button class="small" type="button" data-education="小学及以下">小学及以下</button>
+        <button class="small" type="button" data-education="未上学">未上学</button>
+        <button class="small" type="button" data-education="小学">小学</button>
         <button class="small" type="button" data-education="初中">初中</button>
-        <button class="small" type="button" data-education="高中/中专">高中/中专</button>
+        <button class="small" type="button" data-education="高中">高中</button>
+        <button class="small" type="button" data-education="中专">中专</button>
+        <button class="small" type="button" data-education="职高">职高</button>
+        <button class="small" type="button" data-education="技校">技校</button>
         <button class="small" type="button" data-education="大专">大专</button>
         <button class="small" type="button" data-education="本科">本科</button>
-        <button class="small" type="button" data-education="研究生">研究生</button>
+        <button class="small" type="button" data-education="硕士">硕士</button>
+        <button class="small" type="button" data-education="博士">博士</button>
+      </div>
+      <div class="start-row edu">
+        <div><label for="educationYears">受教育年数</label><input id="educationYears" type="number" min="0" max="30" step="0.5" placeholder="例如 12" inputmode="decimal" autocomplete="off"></div>
+        <div><label for="educationNote">学历备注（有特殊情况时填）</label><input id="educationNote" placeholder="例如 高二辍学、复读一年、成人自考本科" autocomplete="off"></div>
       </div>
       <div class="confirm-row">
         <span>熟悉英文字母</span>
@@ -519,8 +544,13 @@
       <h2 id="doneTitle">答题完成</h2>
       <p id="summary"></p>
       <div id="sectionResults"></div>
-      <div id="dashboard" class="dashboard"></div>
-      <div id="logPath" class="log-path"></div>
+      <button class="small raw-toggle" id="toggleRaw" type="button">查看原始记录</button>
+      <div id="rawRecord" class="raw-record hidden">
+        <div id="rawDetails"></div>
+        <div id="dashboard" class="dashboard"></div>
+        <div id="rawQuestions"></div>
+        <div id="logPath" class="log-path"></div>
+      </div>
       <div id="taskExports" class="dashboard-actions task-exports hidden"></div>
       <div class="dashboard-actions"><button class="small" id="csv">导出结果表（CSV）</button><button class="small" id="json">导出完整备份（JSON）</button><button class="small" id="resumeQuiz">返回继续作答</button><button class="small" id="again">开始下一位患者</button></div>
       <p class="export-note"><strong>结果表（CSV）</strong>：每题一行，含回答、医生标记、对错、跳过代码和用时，用 Numbers 或 Excel 打开即可查看。<br><strong>完整备份（JSON）</strong>：包含每一次点击的原始记录，供数据分析或出问题时恢复用。在“文件”App 里会显示成文本文档，平时不需要打开，保存好即可。</p>

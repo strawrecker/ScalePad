@@ -17,7 +17,7 @@ def hand(cx, cy, angle, length, width):
     return (f'<line x1="{cx}" y1="{cy}" x2="{bx:.1f}" y2="{by:.1f}" stroke="#000" stroke-width="{width}" stroke-linecap="round"/>'
             f'<polygon points="{head}" fill="#000"/>')
 
-def clock(h, m, divider=True):
+def clock_body(h, m, divider=True):
     cx = cy = 250
     if not divider:
         # 想象中的钟面：不画分界线，淡蓝底色表示“在脑海里”
@@ -36,7 +36,15 @@ def clock(h, m, divider=True):
     body += hand(cx, cy, (h % 12 + m / 60) * 30, 120, 12)
     body += hand(cx, cy, m * 6, 175, 9)
     body += f'<circle cx="{cx}" cy="{cy}" r="9" fill="#000"/>'
-    return svg(500, 500, body)
+    return body
+
+def clock(h, m, divider=True):
+    return svg(500, 500, clock_body(h, m, divider))
+
+def timed_clock(label, h, m):
+    # 想象时钟示例：上面是屏幕上出现的时间，下面是在脑海里想出的钟面
+    text = f'<text x="250" y="110" font-size="110" font-weight="700" fill="#000" text-anchor="middle" font-family="sans-serif">{label}</text>'
+    return svg(500, 650, text + f'<g transform="translate(0,150)">{clock_body(h, m)}</g>')
 
 for name, (h, m) in {'clock-right': (1, 10), 'clock-left': (10, 45), 'clock-split': (2, 35)}.items():
     (out / f'{name}.svg').write_text(clock(h, m))
@@ -45,6 +53,8 @@ for name, (h, m) in {'clock-right': (1, 10), 'clock-left': (10, 45), 'clock-spli
 (out / 'clock-time.svg').write_text(svg(500, 500, '<text x="250" y="290" font-size="150" font-weight="700" fill="#000" text-anchor="middle" font-family="sans-serif">15:05</text>'))
 (out / 'clock-imagine.svg').write_text(clock(3, 5, divider=False))
 (out / 'clock-305.svg').write_text(clock(3, 5))
+for name, (label, h, m) in {'clock-imagery-left': ('21:50', 9, 50), 'clock-imagery-right': ('15:05', 3, 5), 'clock-imagery-split': ('19:25', 7, 25)}.items():
+    (out / f'{name}.svg').write_text(timed_clock(label, h, m))
 
 # ---------- 空间 ----------
 DOTS = [(130, 110), (470, 90), (90, 300), (430, 330)]
