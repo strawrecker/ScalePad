@@ -83,8 +83,8 @@ const marksFor = (question) => (question.unseenMark
   ? [{ key: '1', mark: '1' }, { key: '2', mark: '2' }, { key: '3', mark: '4', label: '没见过' }]
   : [{ key: '1', mark: '1' }, { key: '2', mark: '2' }, { key: '3', mark: '3' }]);
 
-/* 名人题里患者没见过的人：识别题医生标 4，比较题患者点“有人不认识”。这题排除，不算对也不算错 */
-const legacyUnseenOptions = ['有人没见过'];
+/* 名人题里患者没见过的人：识别题医生标 4，比较题患者点“我不知道这是谁”。这题排除，不算对也不算错 */
+const legacyUnseenOptions = ['有人没见过', '有人不认识'];
 /* 有标准答案的选择题旁边多一个小的“不确定”按钮：选它算答错 */
 const uncertainOption = '不确定';
 const offersUncertain = (question) => question.response === 'choice' && question.scoring === 'auto' && question.correct !== undefined && question.correct !== null && question.correct !== '';
@@ -485,7 +485,7 @@ function syncWithDefaults(custom, preset) {
         if (key in base) synced[key] = base[key];
         else delete question[key];
       });
-      /* 第三个按钮改过名（有人没见过 → 有人不认识）：旧记录的按钮跟着换名 */
+      /* 第三个按钮改过名（有人没见过 → 有人不认识 → 我不知道这是谁）：旧记录的按钮跟着换名 */
       if (base.unseenOption) {
         const options = question.options.filter((option) => !legacyUnseenOptions.includes(option) && option !== base.unseenOption);
         synced.options = [...options, base.unseenOption];
@@ -945,6 +945,7 @@ async function startSession() {
   }
   ({ plan: activePlan, questions: activeQuestions } = buildPlan(chosen, ageBand, adaptive)); /*@A*/
   //@E ({ plan: activePlan, questions: activeQuestions } = buildPlan(chosen, ageBand));
+  fitCache.clear();
   if (!activeQuestions.length) {
     window.alert('所选量表没有可作答的题目。');
     unlock();
@@ -1246,7 +1247,7 @@ function gateContent(index) {
   /* 医生部分转到患者部分时不再单独出一页“交给患者自己点”，直接进入下一部分 */
   const showPatient = Boolean(previous && previous.delivery === 'audio' && question.delivery !== 'audio' && question.response === 'text');
   const example = question.example ? window.scalePadExamples?.[question.example] : null;
-  /* 进入情绪问卷（前一部分不是情绪问卷）时先放一页提示 */
+  /* 进入自评问卷（PIT、情绪问卷；前一部分不是）时先放一页提示 */
   const mood = Boolean(question.mood && !previous?.mood);
   return showPatient || example || mood ? { showPatient, example, mood } : null;
 }
@@ -1270,6 +1271,7 @@ function renderGate(question, gate) {
   $('quiz').classList.remove('media-question');
   const card = $('gateCard');
   card.innerHTML = '';
+  card.classList.toggle('centered', !gate.example);
   if (gate.showPatient) {
     const handoff = document.createElement('div');
     handoff.className = 'gate-handoff';
@@ -1279,7 +1281,7 @@ function renderGate(question, gate) {
   if (gate.mood) {
     const notice = document.createElement('div');
     notice.className = 'gate-handoff';
-    notice.innerHTML = '<strong>接下来是情绪问卷</strong><span>这部分没有对错，请按自己最近的真实感受选择。</span>';
+    notice.innerHTML = '<strong>接下来是自评问卷</strong><span>这部分没有对错，请按自己的真实感受选择。</span>';
     card.append(notice);
   }
   if (gate.example) {
@@ -1344,7 +1346,8 @@ function introAction(question) {
   if (question.delivery === 'audio') return '请听医生读题，大声说出答案';
   if (question.unseenMark) return '请说出这位名人的名字，没见过就说“没见过”';
   if (question.response === 'text') return '请大声说出答案，不用点屏幕';
-  return '请点下面的按钮作答，拿不准就点“不确定”';
+  /* 只有带“不确定”按钮的题才提它（自评问卷没有这个按钮） */
+  return offersUncertain(question) ? '请点下面的按钮作答，拿不准就点“不确定”' : '请点下面的按钮作答';
 }
 
 /* 字号：同一部分里所有题目用同一个字号，取这一部分最长的题也放得下的最大字号；选项按钮同理。
@@ -1371,6 +1374,11 @@ function fitSize(cacheKey, apply, texts, fits, minPx, maxPx) {
   return size;
 }
 
+/* 缓存按“哪份量表的哪一部分”记，不只按第几部分：换一次测试，同一位置可能是别的量表 */
+function partKey(question) {
+  return `${question.planIndex}|${question.planPreset || ''}|${question.section || ''}`;
+}
+
 function fitQuestionText() {
   fitFrame = null;
   if ($('quiz').classList.contains('hidden') || $('quiz').classList.contains('gated')) return;
@@ -1389,14 +1397,14 @@ function fitQuestionText() {
     const vw = window.innerWidth / 100;
     /* 带图的题：题干只占一行，图片尽量大 */
     if (media) q.style.whiteSpace = 'nowrap';
-    fitSize(`q|${question.planIndex}|${media}`, (px) => { q.style.fontSize = `${px}px`; }, texts, (text) => {
+    fitSize(`q|${partKey(question)}|${media}`, (px) => { q.style.fontSize = `${px}px`; }, texts, (text) => {
       q.textContent = text;
       if (q.scrollWidth > q.clientWidth + 1) return false;
       return media || q.getBoundingClientRect().height <= wrap.clientHeight - 20;
     }, 24, media ? Math.min(7 * vh, 6 * vw, 80) : Math.min(18 * vh, 12 * vw, 220));
     q.textContent = shown;
   }
-  /* 选项按钮：除“有人不认识”外同一个字号 */
+  /* 选项按钮：除“我不知道这是谁”外同一个字号 */
   const buttons = [...document.querySelectorAll('#choices > button.choice:not(.unseen-option):not(.uncertain-option)')];
   buttons.forEach((button) => { button.style.fontSize = ''; button.style.whiteSpace = ''; });
   if (buttons.length && !$('choices').classList.contains('free-response')) {
@@ -1406,7 +1414,7 @@ function fitQuestionText() {
     /* 短选项（如“都在左侧”）不拆成两行 */
     const noWrap = options.every((option) => option.length <= 6) ? 'nowrap' : '';
     buttons.forEach((button) => { button.style.whiteSpace = noWrap; });
-    const size = fitSize(`c|${question.planIndex}|${buttons.length}`, (px) => { probe.style.fontSize = `${px}px`; }, options, (text) => {
+    const size = fitSize(`c|${partKey(question)}|${buttons.length}`, (px) => { probe.style.fontSize = `${px}px`; }, options, (text) => {
       probe.textContent = text;
       return probe.scrollHeight <= probe.clientHeight + 1 && probe.scrollWidth <= probe.clientWidth + 1;
     }, 20, Math.min(window.innerHeight * 0.14, 170));
@@ -2355,6 +2363,7 @@ async function loadSession(id) {
   lettersFamiliar = record.lettersFamiliar || '';
   activePlan = built.plan;
   activeQuestions = built.questions;
+  fitCache.clear();
   answerByQuestion = {};
   seenGates = new Set();
   examplesRead = new Set();
@@ -3031,7 +3040,7 @@ document.addEventListener('keydown', (event) => {
   }
   const digit = digitKey(event.code);
   if (!digit || isGated()) return;
-  /* 名人比较题：3 = 有人不认识 */
+  /* 名人比较题：3 = 我不知道这是谁 */
   const button = document.querySelector(`#choices .mark[data-key="${digit}"]`) || (digit === '3' ? document.querySelector('#choices .unseen-option') : null);
   if (!button) return;
   event.preventDefault();

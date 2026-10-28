@@ -346,10 +346,15 @@
     .question-wrap.with-media .q, .question-wrap.with-media .q.medium, .question-wrap.with-media .q.small { font-size: clamp(34px, 5vw, 64px); }
     #choices .speak-hint { font-size: clamp(22px, 2.8vw, 34px); font-weight: 600; color: #486581; }
     button.gate-start:disabled { background: #9fb3c8; color: #fff; opacity: 1; }
+    /* 只有提示文字的一页：内容和按钮放屏幕中间，不用把鼠标移到最底下（Mac 的 Dock 会弹出来挡住） */
+    #quiz.gated .gate-card.centered { justify-content: center; gap: clamp(24px, 5vh, 56px); }
+    .gate-card.centered button.gate-start { position: static; margin: 0 auto; width: min(640px, 80%); box-shadow: none; }
+    /* 示例页的按钮也离屏幕底边远一点 */
+    .gate-card:not(.centered) button.gate-start { margin-bottom: clamp(16px, 4vh, 48px); }
     #skipOverlay h3 small { font-size: 0.6em; font-weight: 400; }
-    #choices button.unseen-option { flex: 0 0 22%; background: #f0f2f5; color: #52606d; font-size: clamp(22px, 2.8vw, 34px); }
-    #choices.many button.unseen-option { font-size: clamp(22px, 2.8vw, 34px); }
-    #choices.many.has-unseen { grid-template-columns: 1fr 1fr 0.55fr; }
+    #choices button.unseen-option { flex: 0 0 16%; background: #f0f2f5; color: #52606d; font-size: clamp(18px, 2vw, 26px); }
+    #choices.many button.unseen-option { font-size: clamp(18px, 2vw, 26px); }
+    #choices.many.has-unseen { grid-template-columns: 1fr 1fr 0.42fr; }
     /* 选中后要变色，否则点了看不出反应 */
     #choices button.unseen-option.selected { background: #52606d; color: #fff; }
     /* 小的“不确定”按钮：灰色、窄一些，放在选项最后 */
@@ -357,6 +362,8 @@
     #choices button.uncertain-option.selected { background: #52606d; color: #fff; }
     #choices.many.has-uncertain { grid-template-columns: repeat(var(--n), minmax(0, 1fr)) minmax(0, 0.55fr); }
     #choices.many.has-uncertain button.uncertain-option { font-size: clamp(20px, 2.4vw, 30px); }
+    /* 名人比较题：两个名字大按钮，“我不知道这是谁”和“不确定”都是窄的灰按钮 */
+    #choices.many.has-unseen.has-uncertain { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.55fr) minmax(0, 0.45fr); }
     #choices button.unseen-option::after { content: '键盘 3'; display: block; margin-top: 4px; font-size: 14px; font-weight: 400; opacity: 0.6; }
     /* 示例图上方的答案标签 */
     .gate-panels.n4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -387,7 +394,7 @@
     #choices .doctor-title { font-size: clamp(20px, 1.8vw, 30px); }
     #choices.free-response .doctor-panel .mark-row button { min-height: clamp(52px, 8vh, 96px); font-size: clamp(32px, min(3.2vw, 5.5vh), 56px); }
     #choices .doctor-panel .free-response-input { font-size: clamp(22px, 2.4vw, 36px); }
-    #choices button.unseen-option, #choices.many button.unseen-option { flex: 0 0 24%; font-size: clamp(26px, min(3vw, 5vh), 52px); }
+    #choices button.unseen-option, #choices.many button.unseen-option { flex: 0 0 16%; font-size: clamp(20px, min(2vw, 3.4vh), 34px); }
     #choices button.unseen-option::after { font-size: clamp(14px, 1.2vw, 20px); }
     .skip-tag, .quiz-status { font-size: clamp(22px, 2vw, 32px); }
     .researcher-script.doctor-read { font-size: clamp(28px, min(3.8vw, 6vh), 60px); }
@@ -491,7 +498,7 @@
         <button class="small" id="voiceOn" type="button">开启</button>
         <em>默认关闭，由医生口头读题；答题中也可随时切换</em>
       </div>
-      <p class="setup-note">医生记录的题目用数字标记对错：<strong>1 正确　2 错误　3 不确定</strong>；名人面孔识别是 <strong>1 正确　2 错误　3 没见过</strong>（见过但说不出来记 2，没见过记 3，不计入正确率）。名人比较题（谁的脸更圆等）按 <strong>3 = 有人不认识</strong>。<br>电脑键盘：<strong>A 上一题、D 下一题</strong>（← → 也行）、W 上一部分、S 下一部分，1 / 2 / 3 标记，按一下即可。<strong>跳过要长按：Q = 001 太简单，E = 002 太难</strong>（直接跳过本题）；长按空格打开跳过菜单，按 1–6 选其他代码，可写备注。<br>跳过菜单和答题屏幕上只显示代码，不写原因（患者看不出为什么跳过）：<strong>1 → 001 过于简单　2 → 002 太难　3 → 003 不熟悉内容（不认识名人、字母等）　4 → 004 拒绝或疲劳　5 → 005 设备问题　6 → 009 其他</strong><!--@A-->；自适应自动记为正确的题显示“已记录 A”<!--@A-->。</p>
+      <p class="setup-note">医生记录的题目用数字标记对错：<strong>1 正确　2 错误　3 不确定</strong>；名人面孔识别是 <strong>1 正确　2 错误　3 没见过</strong>（见过但说不出来记 2，没见过记 3，不计入正确率）。名人比较题（谁的脸更圆等）按 <strong>3 = 我不知道这是谁</strong>。<br>电脑键盘：<strong>A 上一题、D 下一题</strong>（← → 也行）、W 上一部分、S 下一部分，1 / 2 / 3 标记，按一下即可。<strong>跳过要长按：Q = 001 太简单，E = 002 太难</strong>（直接跳过本题）；长按空格打开跳过菜单，按 1–6 选其他代码，可写备注。<br>跳过菜单和答题屏幕上只显示代码，不写原因（患者看不出为什么跳过）：<strong>1 → 001 过于简单　2 → 002 太难　3 → 003 不熟悉内容（不认识名人、字母等）　4 → 004 拒绝或疲劳　5 → 005 设备问题　6 → 009 其他</strong><!--@A-->；自适应自动记为正确的题显示“已记录 A”<!--@A-->。</p>
       <label>选择量表（一般选 A 套或 B 套；按点击顺序作答，答题中可随时切换部分）</label>
       <div id="scaleList" class="scale-list"></div>
       <button id="start">开始</button>
